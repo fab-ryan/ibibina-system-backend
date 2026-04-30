@@ -7,15 +7,15 @@ export class ResponseDto {
   @ApiProperty({ required: true, readOnly: true })
   @IsBoolean()
   @IsNotEmpty()
-  success: boolean;
+  success!: boolean;
 
   @ApiProperty({ required: true })
   @IsNumber()
-  statusCode: HttpStatus;
+  statusCode!: HttpStatus;
 
   @ApiProperty({ required: true })
   @IsNotEmpty()
-  message: string;
+  message!: string;
 
   @ApiProperty({ required: false })
   data?: Record<string, any>;
@@ -29,14 +29,14 @@ export class ResponseDto {
   })
   @IsString()
   @IsOptional()
-  path: any;
+  path!: any;
 
   @ApiProperty({
     required: true,
   })
   @IsString()
   @IsOptional()
-  method: string;
+  method!: string;
 
   @ApiProperty({ required: false })
   requestId?: string;
@@ -44,5 +44,5 @@ export class ResponseDto {
   @ApiProperty({ required: true })
   @IsOptional()
   @IsNumber()
-  timestamp: string;
+  timestamp!: string;
 }

@@ -4,8 +4,7 @@ import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 
 export class SwaggerConfig {
   public static readonly TITLE = 'API Ibibina';
-  public static readonly DESCRIPTION =
-    'API documentation for the Ibibina application';
+  public static readonly DESCRIPTION = 'API documentation for the Ibibina application';
   public static readonly VERSION = '1.0.0';
   public static readonly TAGS = ['Authentication', 'Users', 'Setup'];
   public static readonly BEARER_AUTH_NAME = 'Bearer';

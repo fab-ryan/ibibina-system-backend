@@ -13,7 +13,7 @@ export const DatabaseConfig = (): DatabaseConfigInterface => ({
   port: parseInt(process.env.DB_PORT || '5432', 10),
   username: process.env.DB_USERNAME || 'user',
   password: process.env.DB_PASSWORD || 'password',
-  database: process.env.DB_DATABASE || 'app_db',
+  database: process.env.DB_DATABASE || 'ibibina',
   synchronize: process.env.DB_SYNCHRONIZE === 'true',
   logging: process.env.DB_LOGGING === 'true',
 });

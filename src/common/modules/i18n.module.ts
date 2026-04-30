@@ -20,10 +20,7 @@ import { Module } from '@nestjs/common';
           watch: configService.get('I18N_WATCH'),
         },
         logging: configService.get('I18N_LOGGING'),
-        typesOutputPath: path.join(
-          process.cwd(),
-          'src/common/constants/i18n.generated.ts',
-        ),
+        typesOutputPath: path.join(process.cwd(), 'src/common/constants/i18n.generated.ts'),
       }),
       resolvers: [
         {
