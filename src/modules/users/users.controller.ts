@@ -30,15 +30,18 @@ import type { AuthUserType } from '@/common/middlewares/authenticate.middleware'
 export class UsersController {
   constructor(private readonly usersService: UsersService) {}
 
-  /** Admin creates any user (including other admins, chairpersons, etc.) */
+  /**
+   * Admin can create any role.
+   * Chairperson can create secretary/finance/member in their own group.
+   */
   @Post()
-  @Auth(UserRole.ADMIN)
+  @Auth(UserRole.ADMIN, UserRole.CHAIRPERSON)
   @HttpCode(HttpStatus.CREATED)
-  @ApiOperation({ summary: 'Create a new user (admin only)' })
+  @ApiOperation({ summary: 'Create a new user (admin or chairperson with restrictions)' })
   @ApiResponse({ status: HttpStatus.CREATED, description: 'User created successfully' })
   @ApiResponse({ status: HttpStatus.CONFLICT, description: 'Email or phone already exists' })
-  async create(@Body() dto: CreateUserDto) {
-    const user = await this.usersService.create(dto);
+  async create(@Body() dto: CreateUserDto, @CurrentUser() currentUser: AuthUserType) {
+    const user = await this.usersService.create(dto, currentUser);
     return {
       success: true,
       statusCode: HttpStatus.CREATED,

@@ -38,7 +38,13 @@ export class AuthController {
       success: true,
       statusCode: HttpStatus.OK,
       message: 'Login successful',
-      data: { user, tokens },
+      data: {
+        user: {
+          ...user,
+          password: undefined, // Exclude password from response
+        },
+        tokens,
+      },
     });
   }
 

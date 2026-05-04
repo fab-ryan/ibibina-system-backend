@@ -11,6 +11,7 @@ import { MailService } from '../mail/mail.service';
 
 interface JwtPayload {
   sub: string;
+  groupId?: string;
   email?: string;
   phone?: string;
   role: string;
@@ -135,6 +136,7 @@ export class AuthService {
   private async generateTokens(user: User): Promise<TokenPair> {
     const payload: JwtPayload = {
       sub: user.id,
+      groupId: user.groupId,
       email: user.email,
       phone: user.phone,
       role: user.role,

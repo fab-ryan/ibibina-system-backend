@@ -1,8 +1,8 @@
-import { NestFactory } from '@nestjs/core';
+import { NestFactory, Reflector } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { SwaggerConfig, AppConfig, winstonLoggerConfig } from './config';
 import { I18nMiddleware, I18nValidationPipe } from 'nestjs-i18n';
-import { ValidationPipe } from '@nestjs/common';
+import { ClassSerializerInterceptor, ValidationPipe } from '@nestjs/common';
 import { WinstonModule, WinstonModuleOptions } from 'nest-winston';
 import { AllExceptionsFilter, HttpExceptionFilter } from './core';
 import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
@@ -15,6 +15,7 @@ async function bootstrap() {
     logger: WinstonModule.createLogger(loggerOptions),
   });
   app.useGlobalInterceptors(new LoggingInterceptor());
+  app.useGlobalInterceptors(new ClassSerializerInterceptor(app.get(Reflector)));
   app.use(requestContextMiddleware);
   app.use(I18nMiddleware);
   app.setGlobalPrefix(appConfig.prefix);

@@ -1,7 +1,8 @@
 export enum UserRole {
   ADMIN = 'admin',
   CHAIRPERSON = 'chairperson',
-  FINANCIAL = 'financial',
+  SECRETARY = 'secretary',
+  FINANCE = 'finance',
   MEMBER = 'member',
 }
 

@@ -5,6 +5,7 @@ import {
   IsNotEmpty,
   IsOptional,
   IsString,
+  IsUUID,
   Matches,
   MaxLength,
   MinLength,
@@ -45,6 +46,15 @@ export class CreateUserDto {
   @IsOptional()
   @IsEnum(UserRole)
   role?: UserRole;
+
+  @ApiPropertyOptional({
+    example: '5f5ad6e2-1377-48f2-b78e-45af0f6fcf62',
+    description: 'Required for non-admin roles',
+  })
+  @ValidateIf((o: { role?: UserRole }) => !ADMIN_ROLES.includes(o.role ?? UserRole.MEMBER))
+  @IsNotEmpty()
+  @IsUUID()
+  groupId?: string;
 
   // ─── Admin-only fields ─────────────────────────────────────────────────────
 
@@ -171,4 +181,9 @@ export class UserFilterDto {
   @IsOptional()
   @IsString()
   search?: string;
+
+  @ApiPropertyOptional({ description: 'Filter users by group id' })
+  @IsOptional()
+  @IsUUID()
+  groupId?: string;
 }

@@ -1,17 +1,35 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { UserRepository } from '../users/repositories';
-import { UsersService } from '../users/users.service';
 import { UserRole, UserStatus } from '../users/enums/user-role.enum';
 import { CreateUserDto } from '../users/dto';
+import { GroupRepository } from '@/modules/groups/repositories';
+import { DEFAULT_GROUP_SETTINGS } from '@/modules/groups/entities/group.entity';
 
 @Injectable()
 export class UserSeeder {
   private readonly logger = new Logger(UserSeeder.name);
 
-  constructor(private readonly userRepository: UserRepository) {}
+  constructor(
+    private readonly userRepository: UserRepository,
+    private readonly groupRepository: GroupRepository,
+  ) {}
 
   async seed(): Promise<void> {
     this.logger.log('Starting user seeding...');
+
+    const defaultGroupName = 'Ibibina Starter Group';
+    let defaultGroup = await this.groupRepository.findOne({ where: { name: defaultGroupName } });
+
+    if (!defaultGroup) {
+      defaultGroup = this.groupRepository.create({
+        name: defaultGroupName,
+        description: 'Default group created during initial seed',
+        isActive: true,
+        settings: DEFAULT_GROUP_SETTINGS,
+      });
+      defaultGroup = await this.groupRepository.save(defaultGroup);
+      this.logger.log(`✓ Created default group: ${defaultGroup.name}`);
+    }
 
     const seedUsers: CreateUserDto[] = [
       // Admin user
@@ -29,6 +47,7 @@ export class UserSeeder {
         lastName: 'Uwimana',
         phone: '+250788123456',
         pin: '123456',
+        groupId: defaultGroup.id,
         role: UserRole.CHAIRPERSON,
         status: UserStatus.ACTIVE,
       },
@@ -38,7 +57,18 @@ export class UserSeeder {
         lastName: 'Mukamana',
         phone: '+250788234567',
         pin: '234567',
-        role: UserRole.FINANCIAL,
+        groupId: defaultGroup.id,
+        role: UserRole.FINANCE,
+        status: UserStatus.ACTIVE,
+      },
+      // Secretary
+      {
+        firstName: 'Alice',
+        lastName: 'Umutoni',
+        phone: '+250788901234',
+        pin: '901234',
+        groupId: defaultGroup.id,
+        role: UserRole.SECRETARY,
         status: UserStatus.ACTIVE,
       },
       // Members
@@ -47,6 +77,7 @@ export class UserSeeder {
         lastName: 'Niyonzima',
         phone: '+250788345678',
         pin: '345678',
+        groupId: defaultGroup.id,
         role: UserRole.MEMBER,
         status: UserStatus.ACTIVE,
       },
@@ -55,6 +86,7 @@ export class UserSeeder {
         lastName: 'Uwase',
         phone: '+250788456789',
         pin: '456789',
+        groupId: defaultGroup.id,
         role: UserRole.MEMBER,
         status: UserStatus.ACTIVE,
       },
@@ -63,6 +95,7 @@ export class UserSeeder {
         lastName: 'Habimana',
         phone: '+250788567890',
         pin: '567890',
+        groupId: defaultGroup.id,
         role: UserRole.MEMBER,
         status: UserStatus.ACTIVE,
       },
@@ -96,5 +129,9 @@ export class UserSeeder {
     const users = await this.userRepository.find();
     await this.userRepository.remove(users);
     this.logger.log(`Removed ${users.length} users`);
+
+    const groups = await this.groupRepository.find();
+    await this.groupRepository.remove(groups);
+    this.logger.log(`Removed ${groups.length} groups`);
   }
 }

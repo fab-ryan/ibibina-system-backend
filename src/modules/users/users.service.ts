@@ -10,43 +10,92 @@ import {
 } from './dto';
 import { UserRole, UserStatus } from './enums/user-role.enum';
 import { UserRepository } from './repositories';
+import { GroupRepository } from '@/modules/groups/repositories';
 import {
   NotFoundException,
   ConflictException,
   BadRequestException,
   UnauthorizedException,
 } from '@/core/exceptions';
+import type { AuthUserType } from '@/common/middlewares/authenticate.middleware';
+
+const REQUIRED_GROUP_ROLES: UserRole[] = [
+  UserRole.CHAIRPERSON,
+  UserRole.SECRETARY,
+  UserRole.FINANCE,
+  UserRole.MEMBER,
+];
 
 @Injectable()
 export class UsersService {
-  constructor(private readonly userRepository: UserRepository) {}
+  constructor(
+    private readonly userRepository: UserRepository,
+    private readonly groupRepository: GroupRepository,
+  ) {}
 
-  async create(dto: CreateUserDto): Promise<User> {
+  async create(dto: CreateUserDto, actor?: AuthUserType): Promise<User> {
     const role = dto.role ?? UserRole.MEMBER;
+    const payload: CreateUserDto = { ...dto, role };
+
+    if (actor?.role === UserRole.CHAIRPERSON) {
+      if (role === UserRole.ADMIN || role === UserRole.CHAIRPERSON) {
+        throw new BadRequestException(
+          'Chairperson can only add secretary, finance, or member users',
+        );
+      }
+
+      if (!actor.groupId) {
+        throw new BadRequestException('Chairperson must belong to a group');
+      }
+
+      if (payload.groupId && payload.groupId !== actor.groupId) {
+        throw new BadRequestException('Chairperson can only add users to their own group');
+      }
+
+      payload.groupId = actor.groupId;
+    }
+
     const isAdmin = ADMIN_ROLES.includes(role);
 
     if (isAdmin) {
-      if (!dto.email || !dto.password) {
+      if (!payload.email || !payload.password) {
         throw new BadRequestException('Admin users require email and password');
       }
-      if (await this.userRepository.existsByEmail(dto.email)) {
-        throw new ConflictException(`User with email '${dto.email}' already exists`);
+      if (await this.userRepository.existsByEmail(payload.email)) {
+        throw new ConflictException(`User with email '${payload.email}' already exists`);
       }
     } else {
-      if (!dto.phone || !dto.pin) {
-        throw new BadRequestException('Non-admin users require phone and PIN');
+      if (!payload.phone || !payload.pin || !payload.groupId) {
+        throw new BadRequestException('Non-admin users require phone, PIN and groupId');
       }
-      if (await this.userRepository.existsByPhone(dto.phone)) {
-        throw new ConflictException(`User with phone '${dto.phone}' already exists`);
+      if (await this.userRepository.existsByPhone(payload.phone)) {
+        throw new ConflictException(`User with phone '${payload.phone}' already exists`);
+      }
+
+      const group = await this.groupRepository.findOne({ where: { id: payload.groupId } });
+      if (!group) {
+        throw new NotFoundException(`Group with id '${payload.groupId}' not found`);
+      }
+
+      if (role !== UserRole.CHAIRPERSON) {
+        const hasChairperson = await this.userRepository.existsActiveByGroupAndRole(
+          payload.groupId,
+          UserRole.CHAIRPERSON,
+        );
+        if (!hasChairperson) {
+          throw new BadRequestException(
+            'A group must have an active chairperson before adding other roles',
+          );
+        }
       }
     }
 
     // PIN is stored in the password column for non-admin users
-    const { pin, ...rest } = dto;
+    const { pin, ...rest } = payload;
     const user = this.userRepository.create({
       ...rest,
       role,
-      password: isAdmin ? dto.password : pin,
+      password: isAdmin ? payload.password : pin,
     });
     return this.userRepository.save(user);
   }
@@ -99,6 +148,15 @@ export class UsersService {
 
   async update(id: string, dto: UpdateUserDto): Promise<User> {
     const user = await this.findOne(id);
+    await this.assertRequiredRoleCoverageOnMutation(user, dto);
+
+    if (dto.groupId) {
+      const group = await this.groupRepository.findOne({ where: { id: dto.groupId } });
+      if (!group) {
+        throw new NotFoundException(`Group with id '${dto.groupId}' not found`);
+      }
+    }
+
     if (dto.email && dto.email !== user.email) {
       if (await this.userRepository.existsByEmail(dto.email)) {
         throw new ConflictException(`Email '${dto.email}' is already taken`);
@@ -144,15 +202,81 @@ export class UsersService {
 
   async updateStatus(id: string, status: UserStatus): Promise<User> {
     const user = await this.findOne(id);
+    await this.assertRequiredRoleCoverageOnStatusChange(user, status);
     return this.userRepository.updateStatus(user, status);
   }
 
   async remove(id: string): Promise<void> {
     const user = await this.findOne(id);
+    await this.assertRequiredRoleCoverageOnRemoval(user);
     await this.userRepository.remove(user);
   }
 
   async countByRole(): Promise<Record<UserRole, number>> {
     return this.userRepository.countByRole();
+  }
+
+  private async assertRequiredRoleCoverageOnRemoval(user: User): Promise<void> {
+    await this.assertRoleCoverageAfterPotentialRemoval(user, {
+      nextGroupId: undefined,
+      nextRole: undefined,
+      nextStatus: UserStatus.INACTIVE,
+    });
+  }
+
+  private async assertRequiredRoleCoverageOnStatusChange(
+    user: User,
+    nextStatus: UserStatus,
+  ): Promise<void> {
+    await this.assertRoleCoverageAfterPotentialRemoval(user, {
+      nextGroupId: user.groupId,
+      nextRole: user.role,
+      nextStatus,
+    });
+  }
+
+  private async assertRequiredRoleCoverageOnMutation(
+    user: User,
+    dto: UpdateUserDto,
+  ): Promise<void> {
+    await this.assertRoleCoverageAfterPotentialRemoval(user, {
+      nextGroupId: dto.groupId ?? user.groupId,
+      nextRole: dto.role ?? user.role,
+      nextStatus: dto.status ?? user.status,
+    });
+  }
+
+  private async assertRoleCoverageAfterPotentialRemoval(
+    user: User,
+    next: {
+      nextGroupId?: string;
+      nextRole?: UserRole;
+      nextStatus: UserStatus;
+    },
+  ): Promise<void> {
+    const sourceGroupId = user.groupId;
+    if (!sourceGroupId) return;
+
+    if (!REQUIRED_GROUP_ROLES.includes(user.role) || user.status !== UserStatus.ACTIVE) {
+      return;
+    }
+
+    const remainsInSameGroup = next.nextGroupId === sourceGroupId;
+    const remainsSameRole = next.nextRole === user.role;
+    const remainsActive = next.nextStatus === UserStatus.ACTIVE;
+
+    if (remainsInSameGroup && remainsSameRole && remainsActive) {
+      return;
+    }
+
+    const remainingCount = await this.userRepository.countActiveByGroupAndRole(
+      sourceGroupId,
+      user.role,
+      user.id,
+    );
+
+    if (remainingCount < 1) {
+      throw new BadRequestException(`Each group must always have at least one active ${user.role}`);
+    }
   }
 }

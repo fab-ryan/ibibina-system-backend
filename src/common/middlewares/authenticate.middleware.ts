@@ -5,6 +5,7 @@ import { ConfigService } from '@nestjs/config';
 
 export interface AuthUserType {
   sub: string;
+  groupId?: string;
   email?: string;
   phone?: string;
   role: string;

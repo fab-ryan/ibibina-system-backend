@@ -7,6 +7,14 @@ import { UsersModule } from './modules/users/users.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { MailModule } from './modules/mail/mail.module';
 import { User } from './modules/users/entities/user.entity';
+import { Group } from './modules/groups/entities/group.entity';
+import { GroupsModule } from './modules/groups/groups.module';
+import { Contribution } from './modules/contributions/entities/contribution.entity';
+import { ContributionsModule } from './modules/contributions/contributions.module';
+import { Penalty } from './modules/penalties/entities/penalty.entity';
+import { PenaltiesModule } from './modules/penalties/penalties.module';
+import { Activity } from './modules/activities/entities/activity.entity';
+import { ActivitiesModule } from './modules/activities/activities.module';
 
 @Module({
   imports: [
@@ -23,13 +31,17 @@ import { User } from './modules/users/entities/user.entity';
         database: configService.get<string>('DB_DATABASE', 'ibibina'),
         synchronize: configService.get<string>('DB_SYNCHRONIZE') === 'true',
         logging: configService.get<string>('DB_LOGGING') === 'true',
-        entities: [User],
+        entities: [User, Group, Contribution, Penalty, Activity],
         autoLoadEntities: true,
       }),
     }),
     MailModule,
     SetupModule,
     UsersModule,
+    GroupsModule,
+    ContributionsModule,
+    PenaltiesModule,
+    ActivitiesModule,
     AuthModule,
   ],
 })

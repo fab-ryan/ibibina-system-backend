@@ -6,10 +6,13 @@ import {
   UpdateDateColumn,
   BeforeInsert,
   BeforeUpdate,
+  ManyToOne,
+  JoinColumn,
 } from 'typeorm';
 import { Exclude } from 'class-transformer';
 import * as bcrypt from 'bcrypt';
 import { UserRole, UserStatus } from '../enums/user-role.enum';
+import { Group } from '@/modules/groups/entities/group.entity';
 
 /** Roles that authenticate with password + email */
 export const ADMIN_ROLES: UserRole[] = [UserRole.ADMIN];
@@ -40,6 +43,17 @@ export class User {
 
   @Column({ type: 'enum', enum: UserRole, default: UserRole.MEMBER })
   role!: UserRole;
+
+  @Column({ type: 'uuid', nullable: true })
+  groupId?: string;
+
+  @ManyToOne(() => Group, (group) => group.users, {
+    nullable: true,
+    onDelete: 'SET NULL',
+    eager: true,
+  })
+  @JoinColumn({ name: 'groupId' })
+  group?: Group;
 
   @Column({ type: 'enum', enum: UserStatus, default: UserStatus.ACTIVE })
   status!: UserStatus;

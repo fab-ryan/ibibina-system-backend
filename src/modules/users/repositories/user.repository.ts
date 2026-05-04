@@ -15,7 +15,7 @@ export class UserRepository extends Repository<User> {
   }
 
   async findByPhone(phone: string): Promise<User | null> {
-    return this.findOne({ where: { phone } });
+    return this.findOne({ where: { phone: this.formatPhone(phone) } });
   }
 
   /**
@@ -26,7 +26,7 @@ export class UserRepository extends Repository<User> {
   async findByIdentifier(identifier: string): Promise<User | null> {
     const byEmail = await this.findOne({ where: { email: identifier } });
     if (byEmail) return byEmail;
-    return this.findOne({ where: { phone: identifier } });
+    return this.findOne({ where: { phone: this.formatPhone(identifier) } });
   }
 
   async findByRole(role: UserRole): Promise<User[]> {
@@ -37,6 +37,7 @@ export class UserRepository extends Repository<User> {
     const where: FindOptionsWhere<User> = {};
     if (filters.role) where.role = filters.role;
     if (filters.status) where.status = filters.status;
+    if (filters.groupId) where.groupId = filters.groupId;
 
     if (filters.search) {
       return this.find({
@@ -62,7 +63,8 @@ export class UserRepository extends Repository<User> {
     const counts: Record<UserRole, number> = {
       [UserRole.ADMIN]: 0,
       [UserRole.CHAIRPERSON]: 0,
-      [UserRole.FINANCIAL]: 0,
+      [UserRole.SECRETARY]: 0,
+      [UserRole.FINANCE]: 0,
       [UserRole.MEMBER]: 0,
     };
     for (const row of results) {
@@ -76,11 +78,42 @@ export class UserRepository extends Repository<User> {
   }
 
   async existsByPhone(phone: string): Promise<boolean> {
-    return this.existsBy({ phone });
+    return this.existsBy({ phone: this.formatPhone(phone) });
   }
 
   async updateStatus(user: User, status: UserStatus): Promise<User> {
     user.status = status;
     return this.save(user);
+  }
+
+  async existsActiveByGroupAndRole(groupId: string, role: UserRole): Promise<boolean> {
+    return this.existsBy({ groupId, role, status: UserStatus.ACTIVE });
+  }
+
+  async countActiveByGroupAndRole(
+    groupId: string,
+    role: UserRole,
+    excludeUserId?: string,
+  ): Promise<number> {
+    const query = this.createQueryBuilder('user')
+      .where('user.groupId = :groupId', { groupId })
+      .andWhere('user.role = :role', { role })
+      .andWhere('user.status = :status', { status: UserStatus.ACTIVE });
+
+    if (excludeUserId) {
+      query.andWhere('user.id != :excludeUserId', { excludeUserId });
+    }
+
+    return query.getCount();
+  }
+
+  formatPhone(phone: string): string {
+    if (phone.startsWith('07')) {
+      return '+250' + phone.slice(1);
+    }
+    if (phone.startsWith('250') && !phone.startsWith('+')) {
+      return '+' + phone;
+    }
+    return phone;
   }
 }
