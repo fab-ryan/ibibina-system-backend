@@ -70,6 +70,17 @@ export class GroupsController {
       data: { groupe_code: code },
     };
   }
+  @Get('active')
+  @ApiOperation({ summary: 'Get all active groups (any user)' })
+  async getActiveGroups() {
+    const groups = await this.groupsService.getActiveGroups();
+    return {
+      success: true,
+      statusCode: HttpStatus.OK,
+      message: 'Active groups retrieved successfully',
+      data: groups,
+    };
+  }
 
   @Get(':id')
   @ApiOperation({ summary: 'Get a group by id (admin only)' })

@@ -27,6 +27,15 @@ export interface GroupSettings {
   gracePeriodDays: number;
   penaltyRate?: number;
   memberLimit?: number;
+  loanSettings?: {
+    interestRate: number;
+    maxDurationMonths: number;
+    collateralRequired: boolean;
+    collateralTypes?: string[];
+    maxLoanMultiplier: number;
+    /** Minimum paid contributions before a member may apply for a loan */
+    minContributionsForLoan?: number;
+  };
   additional?: Record<string, string | number | boolean>;
 }
 
@@ -41,6 +50,14 @@ export const DEFAULT_GROUP_SETTINGS: GroupSettings = {
   penaltyRate: 0.05, // 5% penalty for late payments
   memberLimit: 50, // Default max members per group
   additional: {},
+  loanSettings: {
+    interestRate: 0.1,
+    maxDurationMonths: 6,
+    collateralRequired: false,
+    collateralTypes: ['land', 'livestock', 'equipment', 'savings', 'other'],
+    minContributionsForLoan: 3,
+    maxLoanMultiplier: 3,
+  },
 };
 
 @Entity('groups')

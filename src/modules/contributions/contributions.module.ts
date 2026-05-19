@@ -6,9 +6,15 @@ import { Group } from '@/modules/groups/entities/group.entity';
 import { ContributionRepository } from './repositories/contribution.repository';
 import { ContributionsService } from './contributions.service';
 import { ContributionsController } from './contributions.controller';
+import { TransactionsModule } from '@/modules/transactions/transactions.module';
+import { ActivitiesModule } from '../activities/activities.module';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Contribution, User, Group])],
+  imports: [
+    TypeOrmModule.forFeature([Contribution, User, Group]),
+    TransactionsModule,
+    ActivitiesModule,
+  ],
   controllers: [ContributionsController],
   providers: [ContributionRepository, ContributionsService],
   exports: [ContributionRepository, ContributionsService],

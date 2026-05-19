@@ -1,4 +1,5 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { User, ADMIN_ROLES } from './entities/user.entity';
 import {
   CreateUserDto,
@@ -18,6 +19,10 @@ import {
   UnauthorizedException,
 } from '@/core/exceptions';
 import type { AuthUserType } from '@/common/middlewares/authenticate.middleware';
+import { PaginationHelper } from '@/utils';
+import { MailService } from '@/modules/mail/mail.service';
+import { Group } from '@/modules/groups/entities/group.entity';
+import { SmsService } from '@/modules/sms/sms.service';
 
 const REQUIRED_GROUP_ROLES: UserRole[] = [
   UserRole.CHAIRPERSON,
@@ -28,14 +33,20 @@ const REQUIRED_GROUP_ROLES: UserRole[] = [
 
 @Injectable()
 export class UsersService {
+  private readonly logger = new Logger(UsersService.name);
+
   constructor(
     private readonly userRepository: UserRepository,
     private readonly groupRepository: GroupRepository,
+    private readonly mailService: MailService,
+    private readonly smsService: SmsService,
+    private readonly configService: ConfigService,
   ) {}
 
   async create(dto: CreateUserDto, actor?: AuthUserType): Promise<User> {
     const role = dto.role ?? UserRole.MEMBER;
     const payload: CreateUserDto = { ...dto, role };
+    let targetGroup: Group | null = null;
 
     if (actor?.role === UserRole.CHAIRPERSON) {
       if (role === UserRole.ADMIN || role === UserRole.CHAIRPERSON) {
@@ -65,19 +76,21 @@ export class UsersService {
         throw new ConflictException(`User with email '${payload.email}' already exists`);
       }
     } else {
-      if (!payload.phone || !payload.pin || !payload.groupId) {
-        throw new BadRequestException('Non-admin users require phone, PIN and groupId');
+      if (!payload.phone) {
+        throw new BadRequestException('Non-admin users require phone and password');
       }
       if (await this.userRepository.existsByPhone(payload.phone)) {
         throw new ConflictException(`User with phone '${payload.phone}' already exists`);
       }
 
-      const group = await this.groupRepository.findOne({ where: { id: payload.groupId } });
-      if (!group) {
-        throw new NotFoundException(`Group with id '${payload.groupId}' not found`);
+      if (payload.groupId) {
+        targetGroup = await this.groupRepository.findOne({ where: { id: payload.groupId } });
+        if (!targetGroup) {
+          throw new NotFoundException(`Group with id '${payload.groupId}' not found`);
+        }
       }
 
-      if (role !== UserRole.CHAIRPERSON) {
+      if (role !== UserRole.CHAIRPERSON && payload.groupId) {
         const hasChairperson = await this.userRepository.existsActiveByGroupAndRole(
           payload.groupId,
           UserRole.CHAIRPERSON,
@@ -91,17 +104,32 @@ export class UsersService {
     }
 
     // PIN is stored in the password column for non-admin users
-    const { pin, ...rest } = payload;
+    const { ...rest } = payload;
+    const userPassword = isAdmin ? payload.password : this.generatePin();
     const user = this.userRepository.create({
       ...rest,
       role,
-      password: isAdmin ? payload.password : pin,
+      password: userPassword,
     });
-    return this.userRepository.save(user);
+
+    await this.userRepository.save(user);
+    if (!isAdmin && payload.phone && userPassword) {
+      await this.sendPinSmsIfNeeded(payload.phone, userPassword, targetGroup);
+    }
+    await this.sendGroupJoinEmailIfNeeded(user, targetGroup, userPassword);
+    return user;
   }
 
-  async findAll(filters: UserFilterDto = {}): Promise<User[]> {
-    return this.userRepository.findWithFilters(filters);
+  async findAll(filters: UserFilterDto = {}) {
+    try {
+      return this.userRepository.findWithFilters(filters);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      this.logger.error(
+        `Failed to retrieve users with filters ${JSON.stringify(filters)}: ${message}`,
+      );
+      throw new BadRequestException('Failed to retrieve users with the provided filters', error);
+    }
   }
 
   async findOne(id: string): Promise<User> {
@@ -149,10 +177,12 @@ export class UsersService {
   async update(id: string, dto: UpdateUserDto): Promise<User> {
     const user = await this.findOne(id);
     await this.assertRequiredRoleCoverageOnMutation(user, dto);
+    const previousGroupId = user.groupId;
+    let targetGroup: Group | null = null;
 
     if (dto.groupId) {
-      const group = await this.groupRepository.findOne({ where: { id: dto.groupId } });
-      if (!group) {
+      targetGroup = await this.groupRepository.findOne({ where: { id: dto.groupId } });
+      if (!targetGroup) {
         throw new NotFoundException(`Group with id '${dto.groupId}' not found`);
       }
     }
@@ -168,7 +198,13 @@ export class UsersService {
       }
     }
     Object.assign(user, dto);
-    return this.userRepository.save(user);
+    const savedUser = await this.userRepository.save(user);
+
+    if (dto.groupId && dto.groupId !== previousGroupId) {
+      await this.sendGroupJoinEmailIfNeeded(savedUser, targetGroup, 'null');
+    }
+
+    return savedUser;
   }
 
   async changePassword(id: string, dto: ChangePasswordDto): Promise<void> {
@@ -198,6 +234,9 @@ export class UsersService {
     }
     user.password = dto.newPin;
     await this.userRepository.save(user);
+    if (user.phone) {
+      await this.sendPinChangedSmsIfNeeded(user.phone, dto.newPin);
+    }
   }
 
   async updateStatus(id: string, status: UserStatus): Promise<User> {
@@ -278,5 +317,66 @@ export class UsersService {
     if (remainingCount < 1) {
       throw new BadRequestException(`Each group must always have at least one active ${user.role}`);
     }
+  }
+
+  async usersStatistics() {
+    return this.userRepository.usersStatistics();
+  }
+
+  generatePin(): string {
+    return Math.floor(100000 + Math.random() * 900000).toString();
+  }
+
+  private async sendGroupJoinEmailIfNeeded(
+    user: User,
+    group: Group | null,
+    userPassword?: string,
+  ): Promise<void> {
+    if (!user.email || !group) {
+      return;
+    }
+
+    const mobileAppUrl = this.configService.get<string>(
+      'sms.mobileAppUrl',
+      'http://localhost:3000',
+    );
+
+    try {
+      await this.mailService.sendGroupWelcome({
+        to: user.email,
+        name: user.fullName,
+        groupName: group.name,
+        role: user.role,
+        phone: user.phone,
+        mobileAppUrl,
+        password: userPassword,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      this.logger.error(`Failed to send group join email to ${user.email}: ${message}`);
+    }
+  }
+
+  private async sendPinSmsIfNeeded(phone: string, pin: string, group: Group | null): Promise<void> {
+    try {
+      await this.smsService.sendMemberPin(phone, pin, group?.name);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      this.logger.error(`Failed to send PIN SMS to ${phone}: ${message}`);
+    }
+  }
+
+  private async sendPinChangedSmsIfNeeded(phone: string, pin: string): Promise<void> {
+    try {
+      await this.smsService.sendPinChanged(phone, pin);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      this.logger.error(`Failed to send PIN change SMS to ${phone}: ${message}`);
+    }
+  }
+
+  private async generateUserCode(groupId: string): Promise<string> {
+    const count = await this.userRepository.countBy({ groupId });
+    return `U${groupId.slice(0, 4).toUpperCase()}${(count + 1).toString().padStart(4, '0')}`;
   }
 }

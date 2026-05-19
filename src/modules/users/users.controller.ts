@@ -11,6 +11,7 @@ import {
   HttpCode,
   HttpStatus,
   ParseUUIDPipe,
+  Put,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiParam, ApiQuery } from '@nestjs/swagger';
 import { UsersService } from './users.service';
@@ -57,6 +58,16 @@ export class UsersController {
   @ApiQuery({ name: 'role', enum: UserRole, required: false })
   @ApiQuery({ name: 'status', enum: UserStatus, required: false })
   @ApiQuery({ name: 'search', required: false, description: 'Search by name, email or phone' })
+  @ApiQuery({
+    name: 'page',
+    required: false,
+    description: 'Page number for pagination (default: 1)',
+  })
+  @ApiQuery({
+    name: 'limit',
+    required: false,
+    description: 'Items per page for pagination (default: 20, max: 100)',
+  })
   async findAll(@Query() filters: UserFilterDto) {
     const users = await this.usersService.findAll(filters);
     return {
@@ -64,6 +75,18 @@ export class UsersController {
       statusCode: HttpStatus.OK,
       message: 'Users retrieved successfully',
       data: users,
+    };
+  }
+  @Get('stats')
+  @Auth(UserRole.ADMIN)
+  @ApiOperation({ summary: 'Get user statistics (admin only)' })
+  async usersStatistics() {
+    const stats = await this.usersService.usersStatistics();
+    return {
+      success: true,
+      statusCode: HttpStatus.OK,
+      message: 'User statistics retrieved successfully',
+      data: stats,
     };
   }
 
@@ -110,12 +133,12 @@ export class UsersController {
   }
 
   /** Any authenticated user can update their own profile */
-  @Patch(':id')
   @Auth()
+  @Put(':id')
   @ApiOperation({ summary: 'Update a user (authenticated)' })
   @ApiParam({ name: 'id', description: 'User UUID' })
   async update(
-    @Param('id', ParseUUIDPipe) id: string,
+    @Param('id') id: string,
     @Body() dto: UpdateUserDto,
     @CurrentUser() currentUser: AuthUserType,
   ) {

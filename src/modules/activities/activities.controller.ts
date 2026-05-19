@@ -5,11 +5,15 @@ import * as authenticateMiddleware from '@/common/middlewares/authenticate.middl
 import { UserRole } from '@/modules/users/enums/user-role.enum';
 import { ActivitiesService } from './activities.service';
 import { ActivityFilterDto } from './dto/activity.dto';
+import { ResponseService } from '@/common/services/response.service';
 
 @ApiTags('Activities')
 @Controller('activities')
 export class ActivitiesController {
-  constructor(private readonly activitiesService: ActivitiesService) {}
+  constructor(
+    private readonly activitiesService: ActivitiesService,
+    private readonly responseService: ResponseService,
+  ) {}
 
   @Get()
   @Auth(UserRole.ADMIN, UserRole.CHAIRPERSON, UserRole.SECRETARY, UserRole.FINANCE, UserRole.MEMBER)
@@ -28,6 +32,11 @@ export class ActivitiesController {
     @Query() filters: ActivityFilterDto,
     @CurrentUser() actor: authenticateMiddleware.AuthUserType,
   ) {
-    return this.activitiesService.findMine(filters, actor);
+    const activities = await this.activitiesService.findMine(filters, actor);
+    return this.responseService.response({
+      success: true,
+      data: activities,
+      message: 'User activities retrieved successfully',
+    });
   }
 }

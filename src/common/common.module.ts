@@ -5,6 +5,7 @@ import { ConfigModule } from './modules/config.module';
 import { LoggerService } from './services/logger.service';
 import { ResponseService } from './services/response.service';
 import { AuthenticateMiddleware } from './middlewares/authenticate.middleware';
+import { PaginationHelper } from '@/utils';
 
 @Global()
 @Module({
@@ -14,6 +15,7 @@ import { AuthenticateMiddleware } from './middlewares/authenticate.middleware';
     { provide: LoggerService, useClass: LoggerService },
     ResponseService,
     AuthenticateMiddleware,
+    PaginationHelper,
   ],
   exports: [
     I18nModule,
@@ -23,6 +25,7 @@ import { AuthenticateMiddleware } from './middlewares/authenticate.middleware';
     LoggerService,
     ResponseService,
     AuthenticateMiddleware,
+    PaginationHelper,
   ],
 })
 export class CommonModule {}

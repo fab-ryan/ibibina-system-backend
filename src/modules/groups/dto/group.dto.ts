@@ -8,6 +8,7 @@ import {
   IsIn,
   IsInt,
   IsNotEmpty,
+  IsNumber,
   IsObject,
   IsOptional,
   IsString,
@@ -17,10 +18,58 @@ import {
   Min,
   ValidateNested,
 } from 'class-validator';
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import { UserRole } from '@/modules/users/enums/user-role.enum';
 import { GroupPurpose } from '../entities/group.entity';
+export class LoanSettingsDto {
+  @ApiProperty({ example: 3 })
+  @IsInt()
+  @Min(1)
+  maxLoanMultiplier!: number;
 
+  @ApiPropertyOptional({
+    description: 'Minimum number of paid contributions before a member can apply for a loan',
+    example: 3,
+  })
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  minContributionsForLoan?: number;
+
+  @ApiPropertyOptional({
+    description: 'Types of collateral accepted if collateral is required for loans',
+    example: ['land', 'livestock', 'equipment', 'savings', 'other'],
+  })
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  collateralTypes?: string[];
+
+  @ApiPropertyOptional({
+    description: 'Interest rate applied to loans (e.g., 0.1 for 10% interest)',
+  })
+  @IsOptional()
+  @Min(0)
+  @Max(1) // Ensure interestRate is a number
+  interestRate?: number;
+
+  @ApiPropertyOptional({
+    description: 'Maximum loan duration in months',
+    example: 6,
+  })
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  maxDurationMonths?: number;
+
+  @ApiPropertyOptional({
+    description: 'Whether collateral is required for loans',
+    example: false,
+  })
+  @IsOptional()
+  @IsBoolean()
+  collateralRequired?: boolean;
+}
 export class GroupSettingsDto {
   @ApiProperty({ example: 1000 })
   @IsInt()
@@ -59,6 +108,23 @@ export class GroupSettingsDto {
   @Max(180)
   gracePeriodDays!: number;
 
+  @ApiPropertyOptional({ example: 0.05, description: '5% penalty for late payments' })
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Max(1)
+  @Transform(({ value }) => parseFloat(value)) // Ensure penaltyRate is a number
+  penaltyRate?: number;
+
+  @ApiPropertyOptional({
+    example: 50,
+    description: 'Maximum number of members allowed in the group',
+  })
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  memberLimit?: number;
+
   @ApiPropertyOptional({
     description: 'Flexible settings map for group-specific configuration',
     example: { requireAttendanceBeforeLoan: true, registrationFee: 5000 },
@@ -66,6 +132,15 @@ export class GroupSettingsDto {
   @IsOptional()
   @IsObject()
   additional?: Record<string, string | number | boolean>;
+
+  @ApiPropertyOptional({
+    description: 'Loan-specific settings if the group allows loans',
+    type: () => LoanSettingsDto,
+  })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => LoanSettingsDto)
+  loanSettings?: LoanSettingsDto;
 }
 
 export class CreateGroupDto {
@@ -191,6 +266,21 @@ export class GroupFilterDto {
   @IsOptional()
   @IsBoolean()
   isActive?: boolean;
+
+  @ApiPropertyOptional({ description: 'Page number for pagination (default: 1)' })
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Transform(({ value }) => parseInt(value, 10)) // Ensure page is an integer
+  page?: number;
+
+  @ApiPropertyOptional({ description: 'Items per page for pagination (default: 20, max: 100)' })
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(100)
+  @Transform(({ value }) => parseInt(value, 10)) // Ensure limit is an integer
+  limit?: number;
 }
 
 export class AssignChairpersonDto {
@@ -266,3 +356,13 @@ export class BatchAssignGroupRolesDto {
   @Type(() => BatchUserRoleEntryDto)
   assignments!: BatchUserRoleEntryDto[];
 }
+
+//  loanSettings?: {
+//     interestRate: number;
+//     maxDurationMonths: number;
+//     collateralRequired: boolean;
+//     collateralTypes?: string[];
+//     maxLoanMultiplier: number;
+//     /** Minimum paid contributions before a member may apply for a loan */
+//     minContributionsForLoan?: number;
+//   };

@@ -28,6 +28,9 @@ export class User {
   @Column({ length: 100, nullable: true })
   lastName?: string;
 
+  @Column({ nullable: true })
+  user_code?: string;
+
   /** Required for ADMIN role only */
   @Column({ unique: true, nullable: true, length: 255 })
   email?: string;

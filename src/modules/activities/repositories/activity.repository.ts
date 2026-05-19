@@ -2,23 +2,25 @@ import { Injectable } from '@nestjs/common';
 import { DataSource, Repository } from 'typeorm';
 import { Activity } from '../entities/activity.entity';
 import { ActivityFilterDto } from '../dto/activity.dto';
+import { PaginationHelper } from '@/utils';
 
 @Injectable()
 export class ActivityRepository extends Repository<Activity> {
-  constructor(private readonly dataSource: DataSource) {
+  constructor(
+    private readonly dataSource: DataSource,
+    private readonly paginationHelper: PaginationHelper<Activity>,
+  ) {
     super(Activity, dataSource.createEntityManager());
   }
 
-  async findWithFilters(filters: ActivityFilterDto = {}): Promise<[Activity[], number]> {
+  async findWithFilters(filters: ActivityFilterDto = {}) {
     const page = filters.page ?? 1;
     const limit = filters.limit ?? 50;
 
     const qb = this.createQueryBuilder('a')
       .leftJoinAndSelect('a.actor', 'actor')
       .leftJoinAndSelect('a.group', 'group')
-      .orderBy('a.createdAt', 'DESC')
-      .skip((page - 1) * limit)
-      .take(limit);
+      .orderBy('a.createdAt', 'DESC');
 
     if (filters.groupId) qb.andWhere('a.groupId = :groupId', { groupId: filters.groupId });
     if (filters.actorId) qb.andWhere('a.actorId = :actorId', { actorId: filters.actorId });
@@ -28,6 +30,7 @@ export class ActivityRepository extends Repository<Activity> {
     if (filters.from) qb.andWhere('a.createdAt >= :from', { from: filters.from });
     if (filters.to) qb.andWhere('a.createdAt <= :to', { to: filters.to });
 
-    return qb.getManyAndCount();
+    const results = await this.paginationHelper.run(qb);
+    return results;
   }
 }

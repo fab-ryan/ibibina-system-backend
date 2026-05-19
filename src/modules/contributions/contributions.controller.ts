@@ -21,10 +21,12 @@ import {
   BulkRecordContributionDto,
   ContributionFilterDto,
   GeneratePeriodContributionsDto,
+  MemberCycleProgressQueryDto,
   RecordContributionDto,
   UpdateContributionDto,
   WaiveContributionDto,
 } from './dto/contribution.dto';
+import { PayContributionDto } from '@/modules/transactions/dto/transaction.dto';
 import { BadRequestException } from '@/core/exceptions/app.exception';
 import { ResponseService } from '@/common/services/response.service';
 
@@ -126,6 +128,25 @@ export class ContributionsController {
 
   // ─── Member summary ───────────────────────────────────────────────────────
 
+  @Get('summary/member/cycle-progress')
+  @Auth(UserRole.ADMIN, UserRole.CHAIRPERSON, UserRole.FINANCE, UserRole.SECRETARY, UserRole.MEMBER)
+  @ApiOperation({
+    summary:
+      'Get member cycle progress by group frequency (weekly groups return weeks, monthly groups return months)',
+  })
+  async getMemberCycleProgress(
+    @Query() query: MemberCycleProgressQueryDto,
+    @CurrentUser() actor: AuthUserType,
+  ) {
+    const result = await this.contributionsService.getMemberCycleProgress(query, actor);
+    return this.responseService.response({
+      success: true,
+      statusCode: HttpStatus.OK,
+      message: 'Member cycle progress retrieved successfully',
+      data: result,
+    });
+  }
+
   @Get('summary/member/:userId')
   @Auth(UserRole.ADMIN, UserRole.CHAIRPERSON, UserRole.FINANCE, UserRole.SECRETARY, UserRole.MEMBER)
   @ApiOperation({ summary: 'Get contribution summary for a single member' })
@@ -156,12 +177,6 @@ export class ContributionsController {
     summary:
       'Get contribution record for a group + period (used for auto-generating period from dueDate)',
   })
-  //   @ApiQuery({ name: 'groupId', required: true, description: 'Group UUID' })
-  //   @ApiQuery({
-  //     name: 'dueDate',
-  //     required: true,
-  //     description: 'Due date to infer the period from (YYYY-MM-DD)',
-  //   })
   async getPeriodContribution(@CurrentUser() actor: AuthUserType) {
     const contribution = await this.contributionsService.getPeriod(actor);
     return this.responseService.response({
@@ -171,6 +186,19 @@ export class ContributionsController {
       data: contribution,
     });
   }
+  @Get('my-contributions')
+  @Auth(UserRole.MEMBER)
+  @ApiOperation({ summary: 'Get contributions for the current user' })
+  async getMyContributions(@CurrentUser() actor: AuthUserType) {
+    const res = await this.contributionsService.getMyContributions(actor);
+    return this.responseService.response({
+      success: true,
+      statusCode: HttpStatus.OK,
+      message: 'Contributions retrieved successfully',
+      data: res,
+    });
+  }
+
   // ─── Get single ───────────────────────────────────────────────────────────
 
   @Get(':id')
@@ -178,7 +206,13 @@ export class ContributionsController {
   @ApiOperation({ summary: 'Get a single contribution by ID' })
   @ApiParam({ name: 'id', type: 'string', format: 'uuid' })
   async findOne(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() actor: AuthUserType) {
-    return this.contributionsService.findOne(id, actor);
+    const result = await this.contributionsService.findOne(id, actor);
+    return this.responseService.response({
+      success: true,
+      statusCode: HttpStatus.OK,
+      message: 'Contribution retrieved  successfully',
+      data: result,
+    });
   }
 
   // ─── Update ───────────────────────────────────────────────────────────────
@@ -194,7 +228,20 @@ export class ContributionsController {
   ) {
     return this.contributionsService.update(id, dto, actor);
   }
+  // ─── Pay an existing contribution ─────────────────────────────────────────────
 
+  @Post(':id/pay')
+  @HttpCode(HttpStatus.OK)
+  @Auth(UserRole.ADMIN, UserRole.CHAIRPERSON, UserRole.FINANCE, UserRole.SECRETARY, UserRole.MEMBER)
+  @ApiOperation({ summary: 'Pay a contribution and record the transaction' })
+  @ApiParam({ name: 'id', type: 'string', format: 'uuid' })
+  async pay(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: PayContributionDto,
+    @CurrentUser() actor: AuthUserType,
+  ) {
+    return await this.contributionsService.pay(id, dto, actor);
+  }
   // ─── Waive ────────────────────────────────────────────────────────────────
 
   @Patch(':id/waive')

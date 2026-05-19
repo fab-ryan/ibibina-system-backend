@@ -20,6 +20,8 @@ import {
   UpdatePenaltyDto,
   WaivePenaltyDto,
 } from './dto/penalty.dto';
+import { TransactionsService } from '@/modules/transactions/transactions.service';
+import { TransactionType } from '@/modules/transactions/entities/transaction.entity';
 
 const ISSUER_ROLES = [UserRole.ADMIN, UserRole.CHAIRPERSON, UserRole.FINANCE];
 
@@ -31,6 +33,7 @@ export class PenaltiesService {
     private readonly userRepository: Repository<User>,
     @InjectRepository(Group)
     private readonly groupRepository: Repository<Group>,
+    private readonly transactionsService: TransactionsService,
   ) {}
 
   // ─── Issue a penalty ────────────────────────────────────────────────────────
@@ -111,7 +114,24 @@ export class PenaltiesService {
     penalty.bankRef = dto.bankRef;
     if (dto.notes) penalty.notes = dto.notes;
 
-    return this.penaltyRepository.save(penalty);
+    const saved = await this.penaltyRepository.save(penalty);
+
+    await this.transactionsService.create({
+      type: TransactionType.PENALTY,
+      referenceId: penalty.id,
+      userId: penalty.userId,
+      groupId: penalty.groupId,
+      amount: penalty.amount,
+      currency: penalty.currency,
+      paymentMethod: dto.paymentMethod,
+      paidAt: penalty.paidAt,
+      momoRef: dto.momoRef,
+      bankRef: dto.bankRef,
+      recordedById: actor.sub,
+      notes: dto.notes,
+    });
+
+    return saved;
   }
 
   // ─── Waive ──────────────────────────────────────────────────────────────────

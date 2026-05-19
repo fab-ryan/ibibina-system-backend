@@ -15,7 +15,7 @@ export const AppConfig = registerAs(
   (): AppConfigInterface => ({
     port: parseInt(process.env.PORT || '5100', 10),
     jwtSecret: process.env.JWT_SECRET || 'defaultSecret',
-    jwtExpiresIn: process.env.JWT_EXPIRES_IN || '15m',
+    jwtExpiresIn: process.env.JWT_EXPIRES_IN || '1d',
     refreshSecret: process.env.REFRESH_TOKEN_SECRET || 'defaultRefreshSecret',
     refreshExpiresIn: process.env.REFRESH_TOKEN_EXPIRES_IN || '7d',
     logLevel: (process.env.LOG_LEVEL as 'debug' | 'info' | 'warn' | 'error') || 'info',

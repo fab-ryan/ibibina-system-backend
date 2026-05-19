@@ -83,7 +83,7 @@ export class RecordContributionDto {
   @Min(1)
   cycleNumber?: number;
 
-  @ApiPropertyOptional({ enum: ContributionStatus, default: ContributionStatus.PAID })
+  @ApiPropertyOptional({ enum: ContributionStatus, default: ContributionStatus.PENDING })
   @IsOptional()
   @IsEnum(ContributionStatus)
   status?: ContributionStatus;
@@ -207,15 +207,10 @@ export class ContributionFilterDto {
 
   @ApiPropertyOptional({ default: 1, minimum: 1 })
   @IsOptional()
-  @IsInt()
-  @Min(1)
   page?: number;
 
   @ApiPropertyOptional({ default: 50, minimum: 1, maximum: 200 })
   @IsOptional()
-  @IsInt()
-  @Min(1)
-  @Max(200)
   limit?: number;
 }
 
@@ -226,4 +221,57 @@ export class WaiveContributionDto {
   @IsNotEmpty()
   @IsString()
   reason!: string;
+}
+
+export type MemberCycleProgressStatus = 'paid' | 'missed' | 'upcoming' | 'future';
+
+export class MemberCycleProgressQueryDto {
+  @ApiPropertyOptional({
+    description: 'Target year for cycle progress. Defaults to current year.',
+    example: 2026,
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(2000)
+  @Max(2100)
+  year?: number;
+
+  @ApiPropertyOptional({
+    description: 'Group UUID. Optional for member role; falls back to authenticated user group.',
+  })
+  @IsOptional()
+  groupId?: string;
+
+  @ApiPropertyOptional({
+    description:
+      'User UUID of the member to query. Optional for member role; defaults to authenticated user.',
+  })
+  @IsOptional()
+  userId?: string;
+}
+
+export class MemberCycleProgressItemDto {
+  @ApiProperty({ example: 'Jan' })
+  label!: string;
+
+  @ApiProperty({
+    enum: ['paid', 'missed', 'upcoming', 'future'],
+    example: 'paid',
+  })
+  status!: MemberCycleProgressStatus;
+}
+
+export class MemberCycleProgressResponseDto {
+  @ApiProperty({ enum: ['weekly', 'monthly'], example: 'weekly' })
+  cadence!: 'weekly' | 'monthly';
+
+  @ApiProperty({ example: '7f2fc845-b0fc-4edf-b5d0-1dce8ad02c6a' })
+  groupId!: string;
+
+  @ApiProperty({ example: 2026 })
+  year!: number;
+
+  @ApiProperty({ type: MemberCycleProgressItemDto, isArray: true })
+  periods!: MemberCycleProgressItemDto[];
 }

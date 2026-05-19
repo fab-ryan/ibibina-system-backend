@@ -2,10 +2,14 @@ import { Injectable } from '@nestjs/common';
 import { DataSource, Repository, Like } from 'typeorm';
 import { Group } from '../entities/group.entity';
 import { GroupFilterDto } from '../dto/group.dto';
+import { PaginationHelper } from '@/utils/paginate';
 
 @Injectable()
 export class GroupRepository extends Repository<Group> {
-  constructor(private readonly dataSource: DataSource) {
+  constructor(
+    private readonly dataSource: DataSource,
+    private readonly paginationHelper: PaginationHelper<Group>,
+  ) {
     super(Group, dataSource.createEntityManager());
   }
 
@@ -13,21 +17,16 @@ export class GroupRepository extends Repository<Group> {
     return this.existsBy({ name });
   }
 
-  async findWithFilters(filters: GroupFilterDto = {}): Promise<Group[]> {
-    if (filters.search) {
-      return this.find({
-        where: [
-          { name: Like(`%${filters.search}%`) },
-          { description: Like(`%${filters.search}%`) },
-        ],
-      });
-    }
+  async findWithFilters(filters: GroupFilterDto = {}) {
+    const groupQuery = this.createQueryBuilder('group').orderBy('group.createdAt', 'DESC');
 
+    if (filters.search)
+      groupQuery.andWhere('group.name ILIKE :name', { name: `%${filters.search}%` });
     if (typeof filters.isActive === 'boolean') {
-      return this.find({ where: { isActive: filters.isActive } });
+      groupQuery.andWhere('group.isActive = :isActive', { isActive: filters.isActive });
     }
 
-    return this.find();
+    return await this.paginationHelper.run(groupQuery);
   }
 
   async findByGroupeCode(groupe_code: string): Promise<Group | null> {

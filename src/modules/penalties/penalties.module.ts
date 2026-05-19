@@ -6,9 +6,10 @@ import { Group } from '@/modules/groups/entities/group.entity';
 import { PenaltyRepository } from './repositories/penalty.repository';
 import { PenaltiesService } from './penalties.service';
 import { PenaltiesController } from './penalties.controller';
+import { TransactionsModule } from '@/modules/transactions/transactions.module';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Penalty, User, Group])],
+  imports: [TypeOrmModule.forFeature([Penalty, User, Group]), TransactionsModule],
   controllers: [PenaltiesController],
   providers: [PenaltyRepository, PenaltiesService],
   exports: [PenaltyRepository, PenaltiesService],

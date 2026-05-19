@@ -20,6 +20,16 @@ export interface SendWelcomeOptions {
   loginUrl: string;
 }
 
+export interface SendGroupWelcomeOptions {
+  to: string;
+  name: string;
+  groupName: string;
+  role: string;
+  phone?: string;
+  mobileAppUrl: string;
+  password?: string;
+}
+
 @Injectable()
 export class MailService {
   private readonly logger = new Logger(MailService.name);
@@ -64,6 +74,29 @@ export class MailService {
       });
     } catch (err) {
       this.logger.error(`Failed to send welcome email to ${to}`, err);
+      throw err;
+    }
+  }
+
+  async sendGroupWelcome(options: SendGroupWelcomeOptions): Promise<void> {
+    const { to, name, groupName, role, phone, mobileAppUrl, password } = options;
+    try {
+      await this.mailerService.sendMail({
+        to,
+        subject: `Welcome to ${groupName} — Ibibina System`,
+        template: 'welcome-group',
+        context: {
+          name,
+          groupName,
+          role,
+          phone,
+          mobileAppUrl,
+          password,
+          year: new Date().getFullYear(),
+        },
+      });
+    } catch (err) {
+      this.logger.error(`Failed to send group welcome email to ${to}`, err);
       throw err;
     }
   }

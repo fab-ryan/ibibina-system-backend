@@ -15,7 +15,7 @@ import { AppConfig } from '@/config';
     UsersModule,
     JwtModule.register({
       secret: AppConfig().jwtSecret,
-      signOptions: { expiresIn: '1d' },
+      signOptions: { expiresIn: '7d' },
     }),
   ],
   controllers: [AuthController],

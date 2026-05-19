@@ -7,6 +7,7 @@ import { WinstonModule, WinstonModuleOptions } from 'nest-winston';
 import { AllExceptionsFilter, HttpExceptionFilter } from './core';
 import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
 import { requestContextMiddleware } from './common/middlewares';
+import { NextFunction, Request, Response } from 'express';
 
 async function bootstrap() {
   const appConfig = AppConfig();
@@ -19,7 +20,25 @@ async function bootstrap() {
   app.use(requestContextMiddleware);
   app.use(I18nMiddleware);
   app.setGlobalPrefix(appConfig.prefix);
-  app.enableCors();
+  app.enableCors({
+    origin: true,
+    credentials: true,
+    allowedHeaders: '*',
+  });
+  app.use((req: Request, res: Response, next: NextFunction) => {
+    res.header('Access-Control-Allow-Origin', '*');
+    res.header('Access-Control-Allow-Methods', 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS');
+    res.header(
+      'Access-Control-Allow-Headers',
+      'Origin, X-Requested-With, Content-Type, Accept, Authorization',
+    );
+
+    if (req.method === 'OPTIONS') {
+      return res.sendStatus(200);
+    }
+
+    next();
+  });
   app.useGlobalPipes(
     new I18nValidationPipe(),
     new ValidationPipe({

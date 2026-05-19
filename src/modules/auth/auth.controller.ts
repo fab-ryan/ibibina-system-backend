@@ -60,9 +60,9 @@ export class AuthController {
   @ApiOkResponse({ description: 'Returns new accessToken and refreshToken' })
   async refresh(
     @CurrentUser() user: authenticateMiddleware.AuthUserType,
-    @CurrentRefreshToken() rawRefreshToken: string,
+    @Body('refreshToken') rawRefreshToken: string,
   ) {
-    const tokens = await this.authService.refreshTokens(user.sub, rawRefreshToken);
+    const tokens = await this.authService.refreshTokens(rawRefreshToken);
     return this.responseService.response({
       success: true,
       statusCode: HttpStatus.OK,

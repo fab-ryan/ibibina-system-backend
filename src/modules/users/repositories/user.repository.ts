@@ -3,10 +3,14 @@ import { DataSource, Repository, Like, FindOptionsWhere } from 'typeorm';
 import { User } from '../entities/user.entity';
 import { UserRole, UserStatus } from '../enums/user-role.enum';
 import { UserFilterDto } from '../dto';
+import { AssociativeArray, filterQueryBuilderFromRequest, PaginationHelper } from '@/utils';
 
 @Injectable()
 export class UserRepository extends Repository<User> {
-  constructor(private readonly dataSource: DataSource) {
+  constructor(
+    private readonly dataSource: DataSource,
+    private readonly paginationHelper: PaginationHelper<User>,
+  ) {
     super(User, dataSource.createEntityManager());
   }
 
@@ -33,24 +37,30 @@ export class UserRepository extends Repository<User> {
     return this.find({ where: { role } });
   }
 
-  async findWithFilters(filters: UserFilterDto = {}): Promise<User[]> {
-    const where: FindOptionsWhere<User> = {};
-    if (filters.role) where.role = filters.role;
-    if (filters.status) where.status = filters.status;
-    if (filters.groupId) where.groupId = filters.groupId;
+  async findWithFilters(filters: UserFilterDto = {}) {
+    const userQuery = this.createQueryBuilder('user')
+      .leftJoinAndSelect('user.group', 'group')
+      .orderBy('user.createdAt', 'DESC');
+
+    if (filters.role)
+      userQuery.andWhere('user.role = :role', { role: UserRole[filters.role?.toUpperCase()] });
+    if (filters.status)
+      userQuery.andWhere('user.status = :status', {
+        status: UserStatus[filters.status?.toUpperCase()],
+      });
+    if (filters.groupId)
+      userQuery.andWhere('user.groupId = :groupId', { groupId: filters.groupId });
 
     if (filters.search) {
-      return this.find({
-        where: [
-          { ...where, firstName: Like(`%${filters.search}%`) },
-          { ...where, lastName: Like(`%${filters.search}%`) },
-          { ...where, email: Like(`%${filters.search}%`) },
-          { ...where, phone: Like(`%${filters.search}%`) },
-        ],
-      });
+      const search = `%${filters.search}%`;
+      userQuery.andWhere(
+        '(user.firstName ILIKE :search OR user.lastName ILIKE :xsearch OR user.email ILIKE :search OR user.phone ILIKE :search)',
+        { search },
+      );
     }
+    filterQueryBuilderFromRequest(userQuery, filters as AssociativeArray);
 
-    return this.find({ where });
+    return await this.paginationHelper.run(userQuery);
   }
 
   async countByRole(): Promise<Record<UserRole, number>> {
@@ -115,5 +125,26 @@ export class UserRepository extends Repository<User> {
       return '+' + phone;
     }
     return phone;
+  }
+
+  async usersStatistics(): Promise<{
+    totolUsers: number;
+    activeUsers: number;
+    inactiveUsers: number;
+    adminUsers: number;
+  }> {
+    const [totolUsers, activeUsers, inactiveUsers, adminUsers] = await Promise.all([
+      this.count(),
+      this.countBy({ status: UserStatus.ACTIVE }),
+      this.countBy({ status: UserStatus.INACTIVE }),
+      this.countBy({ role: UserRole.ADMIN }),
+    ]);
+
+    return {
+      totolUsers,
+      activeUsers,
+      inactiveUsers,
+      adminUsers,
+    };
   }
 }

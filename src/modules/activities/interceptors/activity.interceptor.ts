@@ -1,4 +1,11 @@
-import { CallHandler, ExecutionContext, Injectable, NestInterceptor } from '@nestjs/common';
+import {
+  CallHandler,
+  ExecutionContext,
+  Injectable,
+  Logger,
+  NestInterceptor,
+  Optional,
+} from '@nestjs/common';
 import { Request } from 'express';
 import { Observable } from 'rxjs';
 import { tap } from 'rxjs/operators';
@@ -9,7 +16,7 @@ const MUTATION_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 
 @Injectable()
 export class ActivityInterceptor implements NestInterceptor {
-  constructor(private readonly activitiesService: ActivitiesService) {}
+  constructor(@Optional() private readonly activitiesService?: ActivitiesService) {}
 
   intercept(context: ExecutionContext, next: CallHandler): Observable<unknown> {
     if (context.getType() !== 'http') {
@@ -27,14 +34,35 @@ export class ActivityInterceptor implements NestInterceptor {
       tap({
         next: (data: unknown) => {
           const payload = this.buildPayload(request, data, undefined);
-          void this.activitiesService.recordActivity(payload);
+          this.recordSafely(payload);
         },
         error: (error: unknown) => {
           const payload = this.buildPayload(request, undefined, error);
-          void this.activitiesService.recordActivity(payload);
+          this.recordSafely(payload);
         },
       }),
     );
+  }
+
+  private recordSafely(payload: Parameters<ActivitiesService['recordActivity']>[0]): void {
+    try {
+      const service = this.activitiesService;
+      if (!service) {
+        Logger.warn(
+          'ActivitiesService not available; skipping activity log write',
+          ActivityInterceptor.name,
+        );
+        return;
+      }
+
+      void service.recordActivity(payload);
+    } catch (error) {
+      Logger.error(
+        'Failed to write activity log',
+        error instanceof Error ? error.stack : undefined,
+        ActivityInterceptor.name,
+      );
+    }
   }
 
   private buildPayload(

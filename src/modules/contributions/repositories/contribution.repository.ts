@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { DataSource, Repository } from 'typeorm';
 import { Contribution, ContributionStatus } from '../entities/contribution.entity';
 import { ContributionFilterDto } from '../dto/contribution.dto';
+import { PaginateResult, PaginationHelper } from '@/utils';
 
 export interface ContributionSummary {
   groupId: string;
@@ -27,11 +28,16 @@ export interface MemberSummary {
 
 @Injectable()
 export class ContributionRepository extends Repository<Contribution> {
-  constructor(private readonly dataSource: DataSource) {
+  constructor(
+    private readonly dataSource: DataSource,
+    private readonly paginationHelper: PaginationHelper<Contribution>,
+  ) {
     super(Contribution, dataSource.createEntityManager());
   }
 
-  async findWithFilters(filters: ContributionFilterDto = {}): Promise<[Contribution[], number]> {
+  async findWithFilters(
+    filters: ContributionFilterDto = {},
+  ): Promise<PaginateResult<Contribution>> {
     const page = filters.page ?? 1;
     const limit = filters.limit ?? 50;
 
@@ -49,8 +55,10 @@ export class ContributionRepository extends Repository<Contribution> {
     if (filters.status) qb.andWhere('c.status = :status', { status: filters.status });
     if (filters.from) qb.andWhere('c.dueDate >= :from', { from: filters.from });
     if (filters.to) qb.andWhere('c.dueDate <= :to', { to: filters.to });
+    if (filters?.limit) this.paginationHelper.setLimit(filters.limit);
+    if (filters?.page) this.paginationHelper.setPage(filters.page);
 
-    return qb.getManyAndCount();
+    return this.paginationHelper.run(qb);
   }
 
   async existsByUserGroupPeriod(userId: string, groupId: string, period: string): Promise<boolean> {

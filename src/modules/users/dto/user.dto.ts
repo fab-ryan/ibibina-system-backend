@@ -2,17 +2,21 @@ import { ApiProperty, ApiPropertyOptional, PartialType, OmitType } from '@nestjs
 import {
   IsEmail,
   IsEnum,
+  IsInt,
   IsNotEmpty,
   IsOptional,
   IsString,
   IsUUID,
   Matches,
+  Max,
   MaxLength,
+  Min,
   MinLength,
   ValidateIf,
 } from 'class-validator';
 import { UserRole, UserStatus } from '../enums/user-role.enum';
 import { ADMIN_ROLES } from '../entities/user.entity';
+import { Transform } from 'class-transformer';
 
 /**
  * Rwandan phone number — accepts:
@@ -52,17 +56,19 @@ export class CreateUserDto {
     description: 'Required for non-admin roles',
   })
   @ValidateIf((o: { role?: UserRole }) => !ADMIN_ROLES.includes(o.role ?? UserRole.MEMBER))
-  @IsNotEmpty()
-  @IsUUID()
+  @IsOptional()
   groupId?: string;
 
   // ─── Admin-only fields ─────────────────────────────────────────────────────
 
   @ApiPropertyOptional({
     example: 'jean.mutabazi@example.com',
-    description: 'Required for admin role',
+    description: 'Required for admin role, optional for grouped users who should receive emails',
   })
-  @ValidateIf((o: { role?: UserRole }) => ADMIN_ROLES.includes(o.role ?? UserRole.MEMBER))
+  @ValidateIf(
+    (o: { role?: UserRole; email?: string }) =>
+      ADMIN_ROLES.includes(o.role ?? UserRole.MEMBER) || o.email !== undefined,
+  )
   @IsNotEmpty()
   @IsEmail()
   @MaxLength(255)
@@ -93,25 +99,17 @@ export class CreateUserDto {
   @Matches(RWANDAN_PHONE_REGEX, { message: RWANDAN_PHONE_MESSAGE })
   phone?: string;
 
-  @ApiPropertyOptional({
-    example: '123456',
-    description: 'Required for non-admin roles; exactly 6 digits — stored as credential',
-  })
-  @ValidateIf((o: { role?: UserRole }) => !ADMIN_ROLES.includes(o.role ?? UserRole.MEMBER))
-  @IsNotEmpty()
-  @IsString()
-  @Matches(/^\d{6}$/, { message: 'PIN must be exactly 6 digits' })
-  pin?: string;
-
   @IsOptional()
   @ApiPropertyOptional({ enum: UserStatus, default: UserStatus.ACTIVE })
   @IsEnum(UserStatus)
   status?: UserStatus;
+
+  @ApiPropertyOptional({ description: 'Is Email Verified' })
+  @IsOptional()
+  isEmailVerified?: boolean;
 }
 
-export class UpdateUserDto extends PartialType(
-  OmitType(CreateUserDto, ['password', 'pin'] as const),
-) {
+export class UpdateUserDto extends PartialType(OmitType(CreateUserDto, ['password'] as const)) {
   @ApiPropertyOptional({ enum: UserStatus })
   @IsOptional()
   @IsEnum(UserStatus)
@@ -186,4 +184,19 @@ export class UserFilterDto {
   @IsOptional()
   @IsUUID()
   groupId?: string;
+
+  @ApiPropertyOptional({ description: 'Page number for pagination (default: 1)' })
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Transform(({ value }: { value: string }) => parseInt(value, 10)) // Ensure page is an integer
+  page?: number;
+
+  @ApiPropertyOptional({ description: 'Items per page for pagination (default: 20, max: 100)' })
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(100)
+  @Transform(({ value }: { value: string }) => parseInt(value, 10)) // Ensure limit is an integer
+  limit?: number;
 }

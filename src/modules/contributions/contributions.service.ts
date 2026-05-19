@@ -6,7 +6,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Between, Repository } from 'typeorm';
 import { AuthUserType } from '@/common/middlewares/authenticate.middleware';
 import { UserRole } from '@/modules/users/enums/user-role.enum';
 import { User } from '@/modules/users/entities/user.entity';
@@ -22,16 +22,38 @@ import {
   BulkRecordContributionDto,
   ContributionFilterDto,
   GeneratePeriodContributionsDto,
+  MemberCycleProgressQueryDto,
+  MemberCycleProgressResponseDto,
+  MemberCycleProgressStatus,
   PERIOD_MESSAGE,
   PERIOD_REGEX,
   RecordContributionDto,
   UpdateContributionDto,
   WaiveContributionDto,
 } from './dto/contribution.dto';
-import { generate } from 'rxjs';
+import { TransactionsService } from '@/modules/transactions/transactions.service';
+import { TransactionType } from '@/modules/transactions/entities/transaction.entity';
+import { PayContributionDto } from '@/modules/transactions/dto/transaction.dto';
+import { ActivitiesService } from '../activities/activities.service';
+import { PaginateResult } from '@/utils';
+import { ResponseService } from '@/common/services/response.service';
 
 /** Roles allowed to record / manage contributions (not members) */
 const RECORDER_ROLES = [UserRole.ADMIN, UserRole.CHAIRPERSON, UserRole.FINANCE, UserRole.SECRETARY];
+const MONTH_LABELS = [
+  'Jan',
+  'Feb',
+  'Mar',
+  'Apr',
+  'May',
+  'Jun',
+  'Jul',
+  'Aug',
+  'Sep',
+  'Oct',
+  'Nov',
+  'Dec',
+];
 
 @Injectable()
 export class ContributionsService {
@@ -41,6 +63,9 @@ export class ContributionsService {
     private readonly userRepository: Repository<User>,
     @InjectRepository(Group)
     private readonly groupRepository: Repository<Group>,
+    private readonly transactionsService: TransactionsService,
+    private readonly activityService: ActivitiesService,
+    private readonly responseService: ResponseService,
   ) {}
 
   // ─── Record a single contribution ─────────────────────────────────────────
@@ -118,10 +143,19 @@ export class ContributionsService {
         where: { userId: dto.userId, groupId, period: contribution.period },
       });
       if (existing) {
-        throw new BadRequestException(
-          `A contribution record in period "${contribution.period}" already exists. Use PATCH to update it.`,
-        );
+        if (existing.paidAmount && existing.amount && existing.paidAmount >= existing.amount) {
+          throw new BadRequestException(
+            `Contribution for period "${contribution.period}" already fully paid.`,
+          );
+        }
+        if (existing.paidAmount && existing.amount) {
+          existing.paidAmount += contribution.paidAmount ?? 0;
+          await this.contributionRepository.save(existing);
+          await this.activityService.logContributionActivity(existing, actor);
+          return existing;
+        }
       }
+      await this.activityService.logContributionActivity(contribution, actor);
       return await this.contributionRepository.save(contribution);
     } catch (error) {
       const { message } = error instanceof Error ? error : { message: 'Unknown error' };
@@ -261,18 +295,13 @@ export class ContributionsService {
 
   // ─── List contributions ────────────────────────────────────────────────────
 
-  async findAll(
-    filters: ContributionFilterDto,
-    actor: AuthUserType,
-  ): Promise<{ data: Contribution[]; total: number; page: number; limit: number }> {
+  async findAll(filters: ContributionFilterDto, actor: AuthUserType) {
     const scopedFilters = this.applyActorScope(filters, actor);
-    const [data, total] = await this.contributionRepository.findWithFilters(scopedFilters);
-    return {
-      data,
-      total,
-      page: scopedFilters.page ?? 1,
-      limit: scopedFilters.limit ?? 50,
-    };
+    const result = await this.contributionRepository.findWithFilters(scopedFilters);
+    return this.responseService.response({
+      data: result,
+      message: 'Contributions retrieved successfully',
+    });
   }
 
   // ─── Single contribution ───────────────────────────────────────────────────
@@ -308,6 +337,44 @@ export class ContributionsService {
     const { ...rest } = dto;
     Object.assign(contribution, rest);
     return this.contributionRepository.save(contribution);
+  }
+
+  // ─── Pay an existing contribution ───────────────────────────────────────────
+
+  async pay(id: string, dto: PayContributionDto, actor: AuthUserType): Promise<Contribution> {
+    const contribution = await this.contributionRepository.findOne({ where: { id } });
+    if (!contribution) throw new NotFoundException(`Contribution ${id} not found`);
+
+    await this.assertGroupAccess(contribution.groupId, actor);
+
+    if (contribution.status === ContributionStatus.PAID) {
+      throw new BadRequestException('Contribution is already paid');
+    }
+    if (contribution.status === ContributionStatus.WAIVED) {
+      throw new BadRequestException('A waived contribution cannot be paid');
+    }
+
+    const paidAmount = dto.paidAmount ?? contribution.amount;
+    contribution.status = ContributionStatus.PAID;
+    contribution.paidAmount = paidAmount;
+    const saved = await this.contributionRepository.save(contribution);
+
+    await this.transactionsService.create({
+      type: TransactionType.CONTRIBUTION,
+      referenceId: contribution.id,
+      userId: contribution.userId,
+      groupId: contribution.groupId,
+      amount: paidAmount,
+      currency: contribution.currency,
+      paymentMethod: dto.paymentMethod,
+      paidAt: dto.paidAt ? new Date(dto.paidAt) : new Date(),
+      momoRef: dto.momoRef,
+      bankRef: dto.bankRef,
+      recordedById: actor.sub,
+      notes: dto.notes,
+    });
+
+    return saved;
   }
 
   // ─── Waive a contribution ──────────────────────────────────────────────────
@@ -376,7 +443,153 @@ export class ContributionsService {
       throw new ForbiddenException('Members can only view their own contribution summary');
     }
     await this.assertGroupAccess(groupId, actor);
-    return this.contributionRepository.getMemberSummary(userId, groupId);
+    return this.contributionRepository.getMemberSummary(userId ?? actor.sub, groupId);
+  }
+
+  async getMemberCycleProgress(
+    query: MemberCycleProgressQueryDto,
+    actor: AuthUserType,
+  ): Promise<MemberCycleProgressResponseDto> {
+    const targetYear = query.year ?? new Date().getUTCFullYear();
+    const groupId = query.groupId ?? actor.groupId;
+
+    if (!groupId) {
+      throw new BadRequestException('groupId is required when authenticated user has no group');
+    }
+    if (query.userId && actor.role === UserRole.MEMBER.toString() && actor.sub !== query.userId) {
+      throw new ForbiddenException('Members can only view their own cycle progress');
+    }
+
+    if (actor.role !== UserRole.ADMIN.toString() && actor.groupId !== groupId) {
+      throw new ForbiddenException('You can only view cycle progress within your own group');
+    }
+
+    const group = await this.groupRepository.findOne({ where: { id: groupId } });
+    if (!group) {
+      throw new NotFoundException(`Group ${groupId} not found`);
+    }
+    const cadence = group.settings?.contributionFrequency ?? 'weekly';
+
+    await this.assertMemberBelongsToGroup(query.userId ?? actor.sub, groupId);
+
+    const yearStart = `${targetYear}-01-01`;
+    const yearEnd = `${targetYear}-12-31`;
+
+    const contributions = await this.contributionRepository.find({
+      where: {
+        userId: query.userId ?? actor.sub,
+        groupId,
+        dueDate: Between(yearStart, yearEnd),
+      },
+      select: {
+        period: true,
+        dueDate: true,
+        status: true,
+      },
+    });
+
+    const now = new Date();
+    const currentYear = now.getUTCFullYear();
+    const currentMonth = now.getUTCMonth();
+    const { weekYear: currentWeekYear, week: currentWeek } = this.getIsoWeekYear(now);
+
+    const getStatusFromSet = (statuses: Set<ContributionStatus>): MemberCycleProgressStatus => {
+      if (
+        statuses.has(ContributionStatus.PAID) ||
+        statuses.has(ContributionStatus.LATE) ||
+        statuses.has(ContributionStatus.WAIVED)
+      ) {
+        return 'paid';
+      }
+
+      if (statuses.has(ContributionStatus.MISSED)) {
+        return 'missed';
+      }
+
+      return 'upcoming';
+    };
+
+    if (cadence === 'weekly') {
+      const weeklyStatuses = new Map<number, Set<ContributionStatus>>();
+      for (const item of contributions) {
+        const matched = item.period.match(/^\d{4}-W(\d{2})$/);
+        if (!matched) continue;
+
+        const weekNumber = Number(matched[1]);
+        const statuses = weeklyStatuses.get(weekNumber) ?? new Set<ContributionStatus>();
+        statuses.add(item.status);
+        weeklyStatuses.set(weekNumber, statuses);
+      }
+
+      const totalWeeks = this.getIsoWeeksInYear(targetYear);
+      const periods = Array.from({ length: totalWeeks }, (_, index) => {
+        const weekNumber = index + 1;
+        const label = `${targetYear}-W${`${weekNumber}`.padStart(2, '0')}`;
+        const statuses = weeklyStatuses.get(weekNumber);
+
+        if (statuses && statuses.size > 0) {
+          return { label, status: getStatusFromSet(statuses) };
+        }
+
+        let status: MemberCycleProgressStatus;
+        if (targetYear < currentWeekYear) {
+          status = 'missed';
+        } else if (targetYear > currentWeekYear) {
+          status = 'future';
+        } else if (weekNumber < currentWeek) {
+          status = 'missed';
+        } else if (weekNumber === currentWeek) {
+          status = 'upcoming';
+        } else {
+          status = 'future';
+        }
+
+        return { label, status };
+      });
+
+      return {
+        cadence,
+        groupId,
+        year: targetYear,
+        periods,
+      };
+    }
+
+    const monthlyStatuses = new Map<number, Set<ContributionStatus>>();
+    for (const item of contributions) {
+      const monthIndex = new Date(item.dueDate).getUTCMonth();
+      const statuses = monthlyStatuses.get(monthIndex) ?? new Set<ContributionStatus>();
+      statuses.add(item.status);
+      monthlyStatuses.set(monthIndex, statuses);
+    }
+
+    const periods = MONTH_LABELS.map((label, monthIndex) => {
+      const statuses = monthlyStatuses.get(monthIndex);
+      let status: MemberCycleProgressStatus;
+
+      if (statuses && statuses.size > 0) {
+        status = getStatusFromSet(statuses);
+      } else if (targetYear < currentYear) {
+        status = 'missed';
+      } else if (targetYear > currentYear) {
+        status = 'future';
+      } else if (monthIndex < currentMonth) {
+        status = 'missed';
+      } else if (monthIndex === currentMonth) {
+        status = 'upcoming';
+      } else {
+        status = 'future';
+      }
+
+      return { label, status };
+    });
+
+    return {
+      cadence,
+      groupId,
+      year: targetYear,
+      periods,
+    };
   }
 
   // ─── Guards / scope helpers ───────────────────────────────────────────────
@@ -511,6 +724,10 @@ export class ContributionsService {
     return { weekYear, week };
   }
 
+  private getIsoWeeksInYear(year: number): number {
+    return this.getIsoWeekYear(new Date(Date.UTC(year, 11, 28))).week;
+  }
+
   async getPeriod(actor: AuthUserType) {
     try {
       const groupId = this.requireActorGroupId(actor);
@@ -520,6 +737,7 @@ export class ContributionsService {
       const frequency = group.settings?.contributionFrequency ?? 'weekly';
       const today = new Date();
       let period: string;
+      let cycleNumber: number | undefined;
 
       if (frequency === 'weekly') {
         const { weekYear, week } = this.getIsoWeekYear(today);
@@ -539,13 +757,22 @@ export class ContributionsService {
         const generated = this.resolvePeriod(undefined, today.toISOString().split('T')[0], group);
         return {
           period: generated,
+          cycleNumber: 1,
         };
       }
 
-      return { period: contribution?.period };
+      return {
+        period: contribution?.period,
+        cycleNumber: contribution?.cycleNumber ? contribution.cycleNumber + 1 : 1,
+      };
     } catch (error) {
       const { message } = error instanceof Error ? error : { message: 'Unknown error' };
       throw new BadRequestException(message, message);
     }
+  }
+
+  async getMyContributions(actor: AuthUserType): Promise<Contribution[]> {
+    const userId = actor.sub;
+    return this.contributionRepository.find({ where: { userId }, order: { createdAt: 'DESC' } });
   }
 }

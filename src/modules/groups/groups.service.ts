@@ -56,7 +56,7 @@ export class GroupsService {
     return this.groupRepository.save(group);
   }
 
-  async findAll(filters: GroupFilterDto = {}): Promise<Group[]> {
+  async findAll(filters: GroupFilterDto = {}) {
     return this.groupRepository.findWithFilters(filters);
   }
 
@@ -80,7 +80,7 @@ export class GroupsService {
     }
 
     const mergedSettings = dto.settings
-      ? { ...DEFAULT_GROUP_SETTINGS, ...group.settings, ...dto.settings }
+      ? { ...DEFAULT_GROUP_SETTINGS, ...group.settings, ...(dto.settings as any) }
       : group.settings;
 
     Object.assign(group, { ...dto, settings: mergedSettings });
@@ -89,7 +89,7 @@ export class GroupsService {
 
   async updateSettings(id: string, dto: UpdateGroupSettingsDto): Promise<Group> {
     const group = await this.findOne(id);
-    group.settings = { ...DEFAULT_GROUP_SETTINGS, ...group.settings, ...dto.settings };
+    group.settings = { ...DEFAULT_GROUP_SETTINGS, ...group.settings, ...(dto.settings as any) };
     return this.groupRepository.save(group);
   }
 
@@ -300,5 +300,9 @@ export class GroupsService {
       }
     }
     return 'Unique codes generated for all groups';
+  }
+
+  async getActiveGroups(): Promise<Group[]> {
+    return this.groupRepository.find({ where: { isActive: true } });
   }
 }

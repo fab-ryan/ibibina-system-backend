@@ -44,16 +44,25 @@ export class AuthService {
 
   // ─── Token Refresh ────────────────────────────────────────────────────────
 
-  async refreshTokens(userId: string, rawRefreshToken: string): Promise<TokenPair> {
-    const user = await this.usersService.findOne(userId);
+  async refreshTokens(rawRefreshToken: string): Promise<TokenPair> {
+    let payload: JwtPayload;
 
-    if (!user.refreshToken) {
-      throw new UnauthorizedException('No active session found');
+    try {
+      payload = await this.jwtService.verifyAsync<JwtPayload>(rawRefreshToken, {
+        secret: this.configService.get<string>('app.refreshSecret'),
+      });
+    } catch {
+      throw new UnauthorizedException('Refresh token is invalid or has expired');
     }
 
-    const tokenMatch = await bcrypt.compare(rawRefreshToken, user.refreshToken);
-    if (!tokenMatch) {
-      throw new UnauthorizedException('Refresh token is invalid or has been rotated');
+    const user = await this.userRepository.findOne({ where: { id: payload.sub } });
+    if (!user || !user.refreshToken) {
+      throw new UnauthorizedException('User not found or no refresh token stored');
+    }
+
+    const isMatch = await bcrypt.compare(rawRefreshToken, user.refreshToken);
+    if (!isMatch) {
+      throw new UnauthorizedException('Refresh token does not match');
     }
 
     const tokens = await this.generateTokens(user);
@@ -144,7 +153,7 @@ export class AuthService {
     };
 
     const jwtSecret = this.configService.get<string>('app.jwtSecret', '');
-    const jwtExpiresIn = this.configService.get<string>('app.jwtExpiresIn', '15m');
+    const jwtExpiresIn = this.configService.get<string>('app.jwtExpiresIn', '7d');
     const refreshSecret = this.configService.get<string>('app.refreshSecret', '');
     const refreshExpiresIn = this.configService.get<string>('app.refreshExpiresIn', '7d');
 

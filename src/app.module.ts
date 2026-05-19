@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { ScheduleModule } from '@nestjs/schedule';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { CommonModule } from './common';
 import { SetupModule } from './modules/setup/setup.module';
@@ -15,9 +16,17 @@ import { Penalty } from './modules/penalties/entities/penalty.entity';
 import { PenaltiesModule } from './modules/penalties/penalties.module';
 import { Activity } from './modules/activities/entities/activity.entity';
 import { ActivitiesModule } from './modules/activities/activities.module';
+import { DashboardModule } from './modules/dashboard/dashboard.module';
+import { Transaction } from './modules/transactions/entities/transaction.entity';
+import { TransactionsModule } from './modules/transactions/transactions.module';
+import { Loan } from './modules/loans/entities/loan.entity';
+import { LoanRepayment } from './modules/loans/entities/loan-repayment.entity';
+import { LoansModule } from './modules/loans/loans.module';
+import { SmsModule } from './modules/sms/sms.module';
 
 @Module({
   imports: [
+    ScheduleModule.forRoot(),
     CommonModule,
     TypeOrmModule.forRootAsync({
       imports: [ConfigModule],
@@ -31,17 +40,21 @@ import { ActivitiesModule } from './modules/activities/activities.module';
         database: configService.get<string>('DB_DATABASE', 'ibibina'),
         synchronize: configService.get<string>('DB_SYNCHRONIZE') === 'true',
         logging: configService.get<string>('DB_LOGGING') === 'true',
-        entities: [User, Group, Contribution, Penalty, Activity],
+        entities: [User, Group, Contribution, Penalty, Activity, Transaction, Loan, LoanRepayment],
         autoLoadEntities: true,
       }),
     }),
     MailModule,
+    SmsModule,
     SetupModule,
     UsersModule,
     GroupsModule,
     ContributionsModule,
     PenaltiesModule,
     ActivitiesModule,
+    DashboardModule,
+    TransactionsModule,
+    LoansModule,
     AuthModule,
   ],
 })
