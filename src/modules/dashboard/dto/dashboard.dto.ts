@@ -165,3 +165,44 @@ export interface ContributionOverviewResponse {
   totalCollected: number;
   members: MemberContributionRow[];
 }
+
+// ─── Finance overview (chairperson / finance) ─────────────────────────────────
+
+export class FinanceOverviewQueryDto {
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsUUID()
+  groupId?: string;
+
+  @ApiPropertyOptional({ description: 'Year for monthly breakdown (defaults to current year)' })
+  @IsOptional()
+  @IsInt()
+  @Min(2020)
+  @Max(2100)
+  @Type(() => Number)
+  year?: number;
+}
+
+export interface FinanceSummary {
+  totalContributions: number;
+  totalLoansIssued: number;
+  totalRepaid: number;
+  interestEarned: number;
+  pendingPenalties: number;
+  cashOnHand: number;
+  activeLoanCount: number;
+  memberCount: number;
+}
+
+export interface MonthlyBreakdownItem {
+  month: string;
+  contributions: number;
+  repayments: number;
+  penalties: number;
+}
+
+export interface FinanceOverviewResponse {
+  group: { name: string; code: string };
+  summary: FinanceSummary;
+  monthly: MonthlyBreakdownItem[];
+}

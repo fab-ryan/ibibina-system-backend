@@ -103,8 +103,8 @@ export class PenaltiesController {
   // ─── Settle ───────────────────────────────────────────────────────────────────
 
   @Patch(':id/settle')
-  @Auth(UserRole.ADMIN, UserRole.CHAIRPERSON, UserRole.FINANCE)
-  @ApiOperation({ summary: 'Record payment of a penalty' })
+  @Auth(UserRole.ADMIN, UserRole.CHAIRPERSON, UserRole.FINANCE, UserRole.MEMBER)
+  @ApiOperation({ summary: 'Record payment of a penalty (members can settle their own)' })
   @ApiParam({ name: 'id', type: 'string', format: 'uuid' })
   async settle(
     @Param('id', ParseUUIDPipe) id: string,

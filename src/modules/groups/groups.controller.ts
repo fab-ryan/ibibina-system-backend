@@ -29,7 +29,7 @@ import type { AuthUserType } from '@/common/middlewares/authenticate.middleware'
 
 @ApiTags('Groups')
 @Controller('groups')
-@Auth(UserRole.ADMIN, UserRole?.CHAIRPERSON)
+@Auth(UserRole.ADMIN, UserRole?.CHAIRPERSON, UserRole.FINANCE, UserRole.SECRETARY)
 export class GroupsController {
   constructor(private readonly groupsService: GroupsService) {}
 
@@ -167,7 +167,7 @@ export class GroupsController {
   }
 
   @Get(':id/members')
-  @Auth(UserRole.ADMIN, UserRole.CHAIRPERSON)
+  @Auth(UserRole.ADMIN, UserRole.CHAIRPERSON, UserRole.FINANCE, UserRole.SECRETARY)
   @ApiOperation({ summary: 'List all group members grouped by role (admin/chairperson)' })
   @ApiParam({ name: 'id', description: 'Group UUID' })
   async getGroupMembers(

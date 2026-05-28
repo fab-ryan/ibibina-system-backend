@@ -2,16 +2,20 @@ import { Injectable } from '@nestjs/common';
 import { DataSource, Repository } from 'typeorm';
 import { Transaction } from '../entities/transaction.entity';
 import { TransactionFilterDto } from '../dto/transaction.dto';
+import { PaginateResult, PaginationHelper } from '@/utils';
 
 @Injectable()
 export class TransactionRepository extends Repository<Transaction> {
-  constructor(private readonly dataSource: DataSource) {
+  constructor(
+    private readonly dataSource: DataSource,
+    private readonly paginationHelper: PaginationHelper<Transaction>,
+  ) {
     super(Transaction, dataSource.createEntityManager());
   }
 
   async findWithFilters(
     filters: TransactionFilterDto & { groupId?: string },
-  ): Promise<[Transaction[], number]> {
+  ): Promise<PaginateResult<Transaction>> {
     const qb = this.createQueryBuilder('tx')
       .leftJoinAndSelect('tx.user', 'user')
       .orderBy('tx.createdAt', 'DESC');
@@ -23,8 +27,13 @@ export class TransactionRepository extends Repository<Transaction> {
 
     const page = filters.page ?? 1;
     const limit = filters.limit ?? 50;
-    qb.skip((page - 1) * limit).take(limit);
+    this.paginationHelper.setLimit(limit);
+    this.paginationHelper.setPage(page);
 
-    return qb.getManyAndCount();
+    return this.paginationHelper.run(qb);
+  }
+
+  async findByMomoRef(momoRef: string): Promise<Transaction | null> {
+    return this.findOne({ where: { momoRef } });
   }
 }

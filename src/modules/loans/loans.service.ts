@@ -18,6 +18,8 @@ import { TransactionsService } from '@/modules/transactions/transactions.service
 import { TransactionType } from '@/modules/transactions/entities/transaction.entity';
 import { LoanRepository } from './repositories/loan.repository';
 import { LoanRepaymentRepository } from './repositories/loan-repayment.repository';
+import { PenaltyRepository } from '@/modules/penalties/repositories/penalty.repository';
+import { PenaltyStatus } from '@/modules/penalties/entities/penalty.entity';
 import type { LoanGroupSummary } from './repositories/loan.repository';
 import { Loan, LoanStatus } from './entities/loan.entity';
 import { LoanRepayment, RepaymentStatus } from './entities/loan-repayment.entity';
@@ -53,6 +55,7 @@ export class LoansService {
     private readonly contributionRepository: Repository<Contribution>,
     private readonly transactionsService: TransactionsService,
     private readonly paginationHelper: PaginationHelper<Loan>,
+    private readonly penaltyRepository: PenaltyRepository,
   ) {}
 
   // ─── Member requests a loan ───────────────────────────────────────────────
@@ -281,6 +284,18 @@ export class LoansService {
     if (actor.role !== UserRole.ADMIN.toString() && actor.groupId !== loan.groupId) {
       throw new ForbiddenException('You can only manage loans within your own group');
     }
+    const user = await this.userRepository.findOne({ where: { id: loan.userId } });
+    if (!user) throw new NotFoundException(`User ${loan.userId} not found`);
+
+    // Block repayment if the member has unpaid penalties in this group
+    const pendingPenaltyCount = await this.penaltyRepository.count({
+      where: { userId: loan.userId, groupId: loan.groupId, status: PenaltyStatus.PENDING },
+    });
+    if (pendingPenaltyCount > 0) {
+      throw new BadRequestException(
+        `Member has ${pendingPenaltyCount} unpaid penalt${pendingPenaltyCount === 1 ? 'y' : 'ies'} that must be settled before making a loan repayment`,
+      );
+    }
 
     const nextInstallment = await this.repaymentRepository.getNextPendingInstallment(loanId);
     if (!nextInstallment) {
@@ -331,6 +346,7 @@ export class LoansService {
       paidAt: nextInstallment.paidAt,
       momoRef: dto.momoRef,
       bankRef: dto.bankRef,
+      phoneNumber: dto.phoneNumber ?? user?.phone,
       recordedById: actor.sub,
       notes: dto.notes,
     });

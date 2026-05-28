@@ -23,6 +23,8 @@ import { Loan } from './modules/loans/entities/loan.entity';
 import { LoanRepayment } from './modules/loans/entities/loan-repayment.entity';
 import { LoansModule } from './modules/loans/loans.module';
 import { SmsModule } from './modules/sms/sms.module';
+import { Report } from './modules/reports/entities/report.entity';
+import { ReportsModule } from './modules/reports/reports.module';
 
 @Module({
   imports: [
@@ -40,7 +42,17 @@ import { SmsModule } from './modules/sms/sms.module';
         database: configService.get<string>('DB_DATABASE', 'ibibina'),
         synchronize: configService.get<string>('DB_SYNCHRONIZE') === 'true',
         logging: configService.get<string>('DB_LOGGING') === 'true',
-        entities: [User, Group, Contribution, Penalty, Activity, Transaction, Loan, LoanRepayment],
+        entities: [
+          User,
+          Group,
+          Contribution,
+          Penalty,
+          Activity,
+          Transaction,
+          Loan,
+          LoanRepayment,
+          Report,
+        ],
         autoLoadEntities: true,
       }),
     }),
@@ -55,6 +67,7 @@ import { SmsModule } from './modules/sms/sms.module';
     DashboardModule,
     TransactionsModule,
     LoansModule,
+    ReportsModule,
     AuthModule,
   ],
 })

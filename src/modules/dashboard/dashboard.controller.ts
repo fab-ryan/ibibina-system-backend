@@ -8,6 +8,7 @@ import {
   DashboardQueryDto,
   LoanOverviewQueryDto,
   ContributionOverviewQueryDto,
+  FinanceOverviewQueryDto,
 } from './dto/dashboard.dto';
 import { ResponseService } from '@/common/services/response.service';
 
@@ -85,6 +86,23 @@ export class DashboardController {
       success: true,
       data: overview,
       message: 'Contribution overview retrieved successfully',
+    });
+  }
+
+  @Get('staff/finance')
+  @Auth(UserRole.ADMIN, UserRole.CHAIRPERSON, UserRole.FINANCE)
+  @ApiOperation({
+    summary: 'Finance overview: summary stats + monthly breakdown chart for the year',
+  })
+  async getFinanceOverview(
+    @CurrentUser() actor: authenticateMiddleware.AuthUserType,
+    @Query() query: FinanceOverviewQueryDto,
+  ) {
+    const overview = await this.dashboardService.getFinanceOverview(actor, query);
+    return this.responseService.response({
+      success: true,
+      data: overview,
+      message: 'Finance overview retrieved successfully',
     });
   }
 }

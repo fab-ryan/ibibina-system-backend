@@ -9,7 +9,6 @@ import {
 import { Request } from 'express';
 import { Observable } from 'rxjs';
 import { tap } from 'rxjs/operators';
-import { AuthUserType } from '@/common/middlewares/authenticate.middleware';
 import { ActivitiesService } from '../activities.service';
 
 const MUTATION_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);

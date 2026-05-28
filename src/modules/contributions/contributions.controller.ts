@@ -11,8 +11,10 @@ import {
   Patch,
   Post,
   Query,
+  UploadedFile,
+  UseInterceptors,
 } from '@nestjs/common';
-import { ApiOperation, ApiParam, ApiQuery, ApiTags } from '@nestjs/swagger';
+import { ApiConsumes, ApiOperation, ApiParam, ApiQuery, ApiTags } from '@nestjs/swagger';
 import { Auth, CurrentUser } from '@/common/decorators';
 import { UserRole } from '@/modules/users/enums/user-role.enum';
 import type { AuthUserType } from '@/common/middlewares/authenticate.middleware';
@@ -29,6 +31,8 @@ import {
 import { PayContributionDto } from '@/modules/transactions/dto/transaction.dto';
 import { BadRequestException } from '@/core/exceptions/app.exception';
 import { ResponseService } from '@/common/services/response.service';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { localDocumentMulterOptions } from '@/utils/helper';
 
 @ApiTags('Contributions')
 @Controller('contributions')
@@ -232,15 +236,18 @@ export class ContributionsController {
 
   @Post(':id/pay')
   @HttpCode(HttpStatus.OK)
+  @ApiConsumes('multipart/form-data')
   @Auth(UserRole.ADMIN, UserRole.CHAIRPERSON, UserRole.FINANCE, UserRole.SECRETARY, UserRole.MEMBER)
   @ApiOperation({ summary: 'Pay a contribution and record the transaction' })
   @ApiParam({ name: 'id', type: 'string', format: 'uuid' })
+  @UseInterceptors(FileInterceptor('file', localDocumentMulterOptions())) // 5 MB limit
   async pay(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: PayContributionDto,
+    @UploadedFile() file: Express.Multer.File,
     @CurrentUser() actor: AuthUserType,
   ) {
-    return await this.contributionsService.pay(id, dto, actor);
+    return await this.contributionsService.pay(id, dto, actor, file);
   }
   // ─── Waive ────────────────────────────────────────────────────────────────
 

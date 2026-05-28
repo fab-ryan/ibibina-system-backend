@@ -32,14 +32,18 @@ import {
   WaiveContributionDto,
 } from './dto/contribution.dto';
 import { TransactionsService } from '@/modules/transactions/transactions.service';
-import { TransactionType } from '@/modules/transactions/entities/transaction.entity';
+import {
+  TransactionStatus,
+  TransactionType,
+} from '@/modules/transactions/entities/transaction.entity';
 import { PayContributionDto } from '@/modules/transactions/dto/transaction.dto';
+import { PaymentMethod } from '@/enums';
 import { ActivitiesService } from '../activities/activities.service';
 import { PaginateResult } from '@/utils';
 import { ResponseService } from '@/common/services/response.service';
 
 /** Roles allowed to record / manage contributions (not members) */
-const RECORDER_ROLES = [UserRole.ADMIN, UserRole.CHAIRPERSON, UserRole.FINANCE, UserRole.SECRETARY];
+const RECORDER_ROLES = [UserRole.ADMIN, UserRole.CHAIRPERSON, UserRole.FINANCE, UserRole.MEMBER];
 const MONTH_LABELS = [
   'Jan',
   'Feb',
@@ -143,17 +147,31 @@ export class ContributionsService {
         where: { userId: dto.userId, groupId, period: contribution.period },
       });
       if (existing) {
-        if (existing.paidAmount && existing.amount && existing.paidAmount >= existing.amount) {
+        if (existing.status === ContributionStatus.WAIVED) {
           throw new BadRequestException(
-            `Contribution for period "${contribution.period}" already fully paid.`,
+            `Contribution for period "${existing.period}" has been waived and cannot be paid.`,
           );
         }
-        if (existing.paidAmount && existing.amount) {
-          existing.paidAmount += contribution.paidAmount ?? 0;
-          await this.contributionRepository.save(existing);
-          await this.activityService.logContributionActivity(existing, actor);
-          return existing;
+
+        const alreadyPaid = Number(existing.paidAmount ?? 0);
+        const totalDue = Number(existing.amount ?? contribution.amount ?? 0);
+
+        if (totalDue > 0 && alreadyPaid >= totalDue) {
+          throw new BadRequestException(
+            `Contribution for period "${existing.period}" is already fully paid.`,
+          );
         }
+
+        const payingNow = Number(contribution.paidAmount ?? 0);
+        const newTotal = alreadyPaid + payingNow;
+
+        existing.paidAmount = newTotal;
+        existing.status =
+          newTotal >= totalDue ? ContributionStatus.PAID : ContributionStatus.PARTIAL;
+
+        await this.contributionRepository.save(existing);
+        await this.activityService.logContributionActivity(existing, actor);
+        return existing;
       }
       await this.activityService.logContributionActivity(contribution, actor);
       return await this.contributionRepository.save(contribution);
@@ -223,6 +241,19 @@ export class ContributionsService {
         });
 
         succeeded.push(await this.contributionRepository.save(contribution));
+        await this.activityService.logContributionActivity(contribution, actor);
+        await this.transactionsService.create({
+          type: TransactionType.CONTRIBUTION,
+          referenceId: contribution.id,
+          userId,
+          groupId,
+          amount: resolvedAmount,
+          currency: resolvedCurrency,
+          paymentMethod: PaymentMethod.CASH,
+          paidAt: new Date(),
+          recordedById: actor.sub,
+          status: TransactionStatus.COMPLETED,
+        });
       } catch (err) {
         const message = err instanceof Error ? err.message : 'Unknown error';
         failed.push({ userId, reason: message });
@@ -341,7 +372,12 @@ export class ContributionsService {
 
   // ─── Pay an existing contribution ───────────────────────────────────────────
 
-  async pay(id: string, dto: PayContributionDto, actor: AuthUserType): Promise<Contribution> {
+  async pay(
+    id: string,
+    dto: PayContributionDto,
+    actor: AuthUserType,
+    file: Express.Multer.File,
+  ): Promise<Contribution> {
     const contribution = await this.contributionRepository.findOne({ where: { id } });
     if (!contribution) throw new NotFoundException(`Contribution ${id} not found`);
 
@@ -354,23 +390,56 @@ export class ContributionsService {
       throw new BadRequestException('A waived contribution cannot be paid');
     }
 
-    const paidAmount = dto.paidAmount ?? contribution.amount;
-    contribution.status = ContributionStatus.PAID;
-    contribution.paidAmount = paidAmount;
-    const saved = await this.contributionRepository.save(contribution);
+    const alreadyPaid = Number(contribution.paidAmount ?? 0);
+    const totalDue = Number(contribution.amount);
+    const remaining = totalDue - alreadyPaid;
 
+    if (remaining <= 0) {
+      throw new BadRequestException('Contribution is already fully paid');
+    }
+
+    // Default: pay the full remaining balance
+    const payingNow = dto.paidAmount ?? remaining;
+
+    if (payingNow <= 0) {
+      throw new BadRequestException('Payment amount must be greater than zero');
+    }
+    if (payingNow > remaining) {
+      throw new BadRequestException(
+        `Payment amount (${payingNow}) exceeds the remaining balance (${remaining})`,
+      );
+    }
+
+    const newTotalPaid = alreadyPaid + payingNow;
+    const isFullyPaid = newTotalPaid >= totalDue;
+    const isMomo = dto.paymentMethod === PaymentMethod.MOMO;
+
+    // For MoMo: leave status/paidAmount unchanged — webhook will confirm and update
+    // For CASH/BANK: update immediately
+    if (!isMomo) {
+      contribution.paidAmount = newTotalPaid;
+      contribution.status = isFullyPaid ? ContributionStatus.PAID : ContributionStatus.PARTIAL;
+    }
+
+    const saved = await this.contributionRepository.save(contribution);
+    if (file) {
+      const fileUrl = `/uploads/${file.filename}`;
+      dto.referenceFileUrl = fileUrl;
+    }
     await this.transactionsService.create({
       type: TransactionType.CONTRIBUTION,
       referenceId: contribution.id,
       userId: contribution.userId,
       groupId: contribution.groupId,
-      amount: paidAmount,
+      amount: payingNow,
       currency: contribution.currency,
       paymentMethod: dto.paymentMethod,
       paidAt: dto.paidAt ? new Date(dto.paidAt) : new Date(),
       momoRef: dto.momoRef,
       bankRef: dto.bankRef,
+      referenceFileUrl: dto.referenceFileUrl,
       recordedById: actor.sub,
+      phoneNumber: dto.phoneNumber,
       notes: dto.notes,
     });
 

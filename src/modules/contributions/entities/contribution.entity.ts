@@ -14,6 +14,7 @@ import type { Penalty } from '@/modules/penalties/entities/penalty.entity';
 
 export enum ContributionStatus {
   PENDING = 'pending',
+  PARTIAL = 'partial',
   PAID = 'paid',
   LATE = 'late',
   MISSED = 'missed',

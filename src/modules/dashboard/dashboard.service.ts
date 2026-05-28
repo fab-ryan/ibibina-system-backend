@@ -26,6 +26,9 @@ import {
   ContributionOverviewQueryDto,
   ContributionOverviewResponse,
   MemberContributionRow,
+  FinanceOverviewQueryDto,
+  FinanceOverviewResponse,
+  MonthlyBreakdownItem,
 } from './dto/dashboard.dto';
 
 @Injectable()
@@ -464,7 +467,6 @@ export class DashboardService {
   }
 
   // ─── Finance: contribution overview ──────────────────────────────────────
-
   async getContributionOverview(
     actor: AuthUserType,
     query: ContributionOverviewQueryDto,
@@ -598,6 +600,150 @@ export class DashboardService {
       monthlyTarget: Number(group.settings?.contributionAmount ?? 0),
       totalCollected: Number(totalCollectedRaw?.total ?? 0),
       members: memberRows,
+    };
+  }
+
+  // ─── Finance: full overview (summary + monthly chart) ────────────────────
+
+  async getFinanceOverview(
+    actor: AuthUserType,
+    query: FinanceOverviewQueryDto,
+  ): Promise<FinanceOverviewResponse> {
+    const groupId = this.resolveGroupId(actor, query.groupId);
+    const year = query.year ?? new Date().getFullYear();
+
+    const group = await this.groupRepository.findOne({ where: { id: groupId } });
+    if (!group) throw new NotFoundException(`Group ${groupId} not found`);
+
+    const [
+      memberCount,
+      contribRaw,
+      loanIssuedRaw,
+      repaidRaw,
+      interestRaw,
+      pendingPenaltiesRaw,
+      activeLoanCount,
+      monthlyRows,
+    ] = await Promise.all([
+      this.userRepository.count({ where: { groupId, status: UserStatus.ACTIVE } }),
+
+      this.transactionRepository
+        .createQueryBuilder('t')
+        .select('COALESCE(SUM(t.amount), 0)', 'total')
+        .where('t.groupId = :groupId', { groupId })
+        .andWhere('t.type = :type', { type: TransactionType.CONTRIBUTION })
+        .getRawOne<{ total: string }>(),
+
+      this.transactionRepository
+        .createQueryBuilder('t')
+        .select('COALESCE(SUM(t.amount), 0)', 'total')
+        .where('t.groupId = :groupId', { groupId })
+        .andWhere('t.type = :type', { type: TransactionType.LOAN_DISBURSEMENT })
+        .getRawOne<{ total: string }>(),
+
+      this.transactionRepository
+        .createQueryBuilder('t')
+        .select('COALESCE(SUM(t.amount), 0)', 'total')
+        .where('t.groupId = :groupId', { groupId })
+        .andWhere('t.type = :type', { type: TransactionType.LOAN_REPAYMENT })
+        .getRawOne<{ total: string }>(),
+
+      this.loanRepository
+        .createQueryBuilder('l')
+        .select('COALESCE(SUM(l.totalDue - l.disbursedAmount), 0)', 'total')
+        .where('l.groupId = :groupId', { groupId })
+        .andWhere('l.status IN (:...statuses)', {
+          statuses: [LoanStatus.ACTIVE, LoanStatus.CLOSED],
+        })
+        .andWhere('l.totalDue IS NOT NULL')
+        .andWhere('l.disbursedAmount IS NOT NULL')
+        .getRawOne<{ total: string }>(),
+
+      this.penaltyRepository
+        .createQueryBuilder('p')
+        .select('COALESCE(SUM(p.amount), 0)', 'total')
+        .where('p.groupId = :groupId', { groupId })
+        .andWhere('p.status = :status', { status: PenaltyStatus.PENDING })
+        .getRawOne<{ total: string }>(),
+
+      this.loanRepository.count({ where: { groupId, status: LoanStatus.ACTIVE } }),
+
+      // Monthly breakdown: contributions, repayments, penalties per month for the year
+      this.transactionRepository
+        .createQueryBuilder('t')
+        .select('EXTRACT(MONTH FROM t."paidAt")', 'month')
+        .addSelect(
+          'COALESCE(SUM(CASE WHEN t.type = :contrib THEN t.amount ELSE 0 END), 0)',
+          'contributions',
+        )
+        .addSelect(
+          'COALESCE(SUM(CASE WHEN t.type = :repay THEN t.amount ELSE 0 END), 0)',
+          'repayments',
+        )
+        .addSelect(
+          'COALESCE(SUM(CASE WHEN t.type = :penalty THEN t.amount ELSE 0 END), 0)',
+          'penalties',
+        )
+        .where('t.groupId = :groupId', { groupId })
+        .andWhere('EXTRACT(YEAR FROM t."paidAt") = :year', { year })
+        .setParameter('contrib', TransactionType.CONTRIBUTION)
+        .setParameter('repay', TransactionType.LOAN_REPAYMENT)
+        .setParameter('penalty', TransactionType.PENALTY)
+        .groupBy('EXTRACT(MONTH FROM t."paidAt")')
+        .orderBy('month', 'ASC')
+        .getRawMany<{
+          month: string;
+          contributions: string;
+          repayments: string;
+          penalties: string;
+        }>(),
+    ]);
+
+    const MONTH_NAMES = [
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
+    ];
+    const monthMap = new Map(monthlyRows.map((r) => [Math.round(Number(r.month)), r]));
+    const currentMonth = new Date().getFullYear() === year ? new Date().getMonth() + 1 : 12;
+
+    const monthly: MonthlyBreakdownItem[] = [];
+    for (let m = 1; m <= currentMonth; m++) {
+      const row = monthMap.get(m);
+      monthly.push({
+        month: MONTH_NAMES[m - 1],
+        contributions: Number(row?.contributions ?? 0),
+        repayments: Number(row?.repayments ?? 0),
+        penalties: Number(row?.penalties ?? 0),
+      });
+    }
+
+    const totalContributions = Number(contribRaw?.total ?? 0);
+    const totalLoansIssued = Number(loanIssuedRaw?.total ?? 0);
+    const totalRepaid = Number(repaidRaw?.total ?? 0);
+
+    return {
+      group: { name: group.name, code: group.groupe_code ?? '' },
+      summary: {
+        totalContributions,
+        totalLoansIssued,
+        totalRepaid,
+        interestEarned: Number(interestRaw?.total ?? 0),
+        pendingPenalties: Number(pendingPenaltiesRaw?.total ?? 0),
+        cashOnHand: totalContributions + totalRepaid - totalLoansIssued,
+        activeLoanCount,
+        memberCount,
+      },
+      monthly,
     };
   }
 }

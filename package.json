@@ -47,7 +47,8 @@
     "rxjs": "^7.8.1",
     "typeorm": "^0.3.28",
     "uuid": "^14.0.0",
-    "winston": "^3.19.0"
+    "winston": "^3.19.0",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3.2.0",
@@ -59,7 +60,8 @@
     "@types/express": "^5.0.0",
     "@types/hbs": "^4.0.5",
     "@types/jest": "^30.0.0",
-    "@types/node": "^22.10.7",
+    "@types/multer": "^2.1.0",
+    "@types/node": "^22.19.19",
     "@types/nodemailer": "^8.0.0",
     "@types/supertest": "^6.0.2",
     "eslint": "^9.18.0",

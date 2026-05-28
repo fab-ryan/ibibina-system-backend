@@ -152,6 +152,15 @@ export class RecordRepaymentDto {
   @IsOptional()
   @IsString()
   notes?: string;
+
+  @ApiPropertyOptional({
+    example: '0781234567',
+    description: 'Phone number to charge via MoMo (required when paymentMethod is momo)',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(20)
+  phoneNumber?: string;
 }
 
 // ─── Mark a repayment as missed ───────────────────────────────────────────────

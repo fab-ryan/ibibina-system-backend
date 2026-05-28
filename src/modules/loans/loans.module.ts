@@ -5,6 +5,7 @@ import { User } from '@/modules/users/entities/user.entity';
 import { Group } from '@/modules/groups/entities/group.entity';
 import { Contribution } from '@/modules/contributions/entities/contribution.entity';
 import { TransactionsModule } from '@/modules/transactions/transactions.module';
+import { PenaltiesModule } from '@/modules/penalties/penalties.module';
 import { Loan } from './entities/loan.entity';
 import { LoanRepayment } from './entities/loan-repayment.entity';
 import { LoanRepository } from './repositories/loan.repository';
@@ -18,6 +19,7 @@ import { LoanSchedulerService } from './loans.scheduler';
     TypeOrmModule.forFeature([Loan, LoanRepayment, User, Group, Contribution]),
     CommonModule,
     TransactionsModule,
+    PenaltiesModule,
   ],
   controllers: [LoansController],
   providers: [LoanRepository, LoanRepaymentRepository, LoansService, LoanSchedulerService],

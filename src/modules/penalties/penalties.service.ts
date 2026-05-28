@@ -22,6 +22,7 @@ import {
 } from './dto/penalty.dto';
 import { TransactionsService } from '@/modules/transactions/transactions.service';
 import { TransactionType } from '@/modules/transactions/entities/transaction.entity';
+import { PaymentMethod } from '@/enums';
 
 const ISSUER_ROLES = [UserRole.ADMIN, UserRole.CHAIRPERSON, UserRole.FINANCE];
 
@@ -100,6 +101,13 @@ export class PenaltiesService {
 
     await this.assertGroupAccess(penalty.groupId, actor);
 
+    if (actor.role === UserRole.MEMBER.toString() && penalty.userId !== actor.sub) {
+      throw new ForbiddenException('Members can only settle their own penalties');
+    }
+
+    const user = await this.userRepository.findOne({ where: { id: penalty.userId } });
+    if (!user) throw new NotFoundException(`User ${penalty.userId} not found`);
+
     if (penalty.status === PenaltyStatus.PAID) {
       throw new BadRequestException('Penalty is already settled');
     }
@@ -107,12 +115,19 @@ export class PenaltiesService {
       throw new BadRequestException('A waived penalty cannot be settled');
     }
 
-    penalty.status = PenaltyStatus.PAID;
     penalty.paymentMethod = dto.paymentMethod;
-    penalty.paidAt = dto.paidAt ? new Date(dto.paidAt) : new Date();
     penalty.momoRef = dto.momoRef;
     penalty.bankRef = dto.bankRef;
     if (dto.notes) penalty.notes = dto.notes;
+
+    const isMomo = dto.paymentMethod === PaymentMethod.MOMO;
+
+    // For MoMo: keep PENDING — Paypack webhook will confirm and mark PAID
+    // For CASH/BANK: mark PAID immediately
+    if (!isMomo) {
+      penalty.status = PenaltyStatus.PAID;
+      penalty.paidAt = dto.paidAt ? new Date(dto.paidAt) : new Date();
+    }
 
     const saved = await this.penaltyRepository.save(penalty);
 
@@ -128,6 +143,7 @@ export class PenaltiesService {
       momoRef: dto.momoRef,
       bankRef: dto.bankRef,
       recordedById: actor.sub,
+      phoneNumber: dto.phoneNumber ?? user?.phone,
       notes: dto.notes,
     });
 

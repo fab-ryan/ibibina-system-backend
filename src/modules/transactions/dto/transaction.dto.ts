@@ -10,7 +10,7 @@ import {
   MaxLength,
   Min,
 } from 'class-validator';
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import { PaymentMethod } from '@/enums';
 import { TransactionStatus, TransactionType } from '../entities/transaction.entity';
 
@@ -26,6 +26,7 @@ export class PayContributionDto {
     description: 'Amount paid — defaults to the contribution amount',
   })
   @IsOptional()
+  @Transform(({ value }) => Number(value))
   @IsNumber()
   @IsPositive()
   paidAmount?: number;
@@ -50,10 +51,28 @@ export class PayContributionDto {
   @MaxLength(100)
   bankRef?: string;
 
+  @ApiPropertyOptional({
+    example: '/uploads/references/abc123.jpg',
+    description: 'URL of uploaded bank proof/reference file (for BANK payments)',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(512)
+  referenceFileUrl?: string;
+
   @ApiPropertyOptional({ description: 'Optional notes about this payment' })
   @IsOptional()
   @IsString()
   notes?: string;
+
+  @ApiPropertyOptional({
+    example: '0781234567',
+    description: 'Phone number for MoMo payments (required when paymentMethod is momo)',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(20)
+  phoneNumber?: string;
 }
 
 // ─── Pay a penalty (POST /penalties/:id/pay) ──────────────────────────────────
@@ -111,7 +130,9 @@ export interface CreateTransactionData {
   paidAt?: Date;
   momoRef?: string;
   bankRef?: string;
+  referenceFileUrl?: string;
   recordedById?: string;
   notes?: string;
+  phoneNumber?: string;
   status?: TransactionStatus;
 }
