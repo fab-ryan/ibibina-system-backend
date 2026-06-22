@@ -14,7 +14,7 @@ export class SmsService {
 
   async send(options: SendSmsOptions): Promise<void> {
     const enabled = this.configService.get<boolean>('sms.enabled', false);
-    const provider = this.configService.get<'twilio' | 'mock'>('sms.provider', 'twilio');
+    const provider = this.configService.get<'pindo' | 'mock'>('sms.provider', 'pindo');
 
     if (!enabled) {
       this.logger.log(`SMS disabled. Skipping SMS to ${options.to}`);
@@ -26,7 +26,7 @@ export class SmsService {
       return;
     }
 
-    await this.sendWithTwilio(options);
+    await this.sendWithPindo(options);
   }
 
   async sendMemberPin(to: string, pin: string, groupName?: string): Promise<void> {
@@ -53,37 +53,37 @@ export class SmsService {
     await this.send({ to, body });
   }
 
-  private async sendWithTwilio(options: SendSmsOptions): Promise<void> {
-    const accountSid = this.configService.get<string>('sms.accountSid', '');
-    const authToken = this.configService.get<string>('sms.authToken', '');
-    const fromNumber = this.configService.get<string>('sms.fromNumber', '');
+  async sendPasswordResetOtp(to: string, otp: string): Promise<void> {
+    const body = `Ibibina System: Your password reset verification code is ${otp}. It will expire in 15 minutes.`;
+    await this.send({ to, body });
+  }
 
-    if (!accountSid || !authToken || !fromNumber) {
-      this.logger.warn('SMS is enabled but Twilio credentials are incomplete. Skipping SMS send.');
+  private async sendWithPindo(options: SendSmsOptions): Promise<void> {
+    const token = this.configService.get<string>('sms.pindoToken', '');
+    const sender = this.configService.get<string>('sms.pindoSender', 'Ibibina');
+
+    if (!token) {
+      this.logger.warn('SMS is enabled but Pindo token is missing. Skipping SMS send.');
       return;
     }
 
-    const credentials = Buffer.from(`${accountSid}:${authToken}`).toString('base64');
-    const response = await fetch(
-      `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Messages.json`,
-      {
-        method: 'POST',
-        headers: {
-          Authorization: `Basic ${credentials}`,
-          'Content-Type': 'application/x-www-form-urlencoded',
-        },
-        body: new URLSearchParams({
-          To: options.to,
-          From: fromNumber,
-          Body: options.body,
-        }),
+    const response = await fetch('https://api.pindo.io/v1/sms/', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
       },
-    );
+      body: JSON.stringify({
+        to: options.to,
+        text: options.body,
+        sender,
+      }),
+    });
 
     if (!response.ok) {
       const errorText = await response.text();
       this.logger.error(`Failed to send SMS to ${options.to}: ${errorText}`);
-      throw new Error(`Twilio SMS failed with status ${response.status}`);
+      throw new Error(`Pindo SMS failed with status ${response.status}`);
     }
   }
 }

@@ -6,8 +6,10 @@ import { UsersService } from '../users/users.service';
 import { UserRepository } from '../users/repositories';
 import { User } from '../users/entities/user.entity';
 import { LoginDto } from '../users/dto';
-import { UnauthorizedException, BadRequestException } from '@/core/exceptions';
+import { UnauthorizedException, BadRequestException, NotFoundException } from '@/core/exceptions';
 import { MailService } from '../mail/mail.service';
+import { SmsService } from '../sms/sms.service';
+import { ForgotPasswordDto, ResetPasswordDto, VerifyResetOtpDto } from './dto/auth.dto';
 
 interface JwtPayload {
   sub: string;
@@ -31,6 +33,7 @@ export class AuthService {
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
     private readonly mailService: MailService,
+    private readonly smsService: SmsService,
   ) {}
 
   // ─── Login ────────────────────────────────────────────────────────────────
@@ -140,6 +143,88 @@ export class AuthService {
     }
   }
 
+  // ─── Forgot & Reset Password ──────────────────────────────────────────────
+
+  async forgotPassword(dto: ForgotPasswordDto): Promise<void> {
+    const user = await this.usersService.findByIdentifier(dto.identifier);
+    if (!user) {
+      // Return success to avoid user enumeration
+      return;
+    }
+
+    const otp = Math.floor(1000 + Math.random() * 9000).toString();
+    const hashedOtp = await bcrypt.hash(otp, 10);
+    const expiresAt = new Date();
+    expiresAt.setMinutes(expiresAt.getMinutes() + 15);
+
+    user.resetOtp = hashedOtp;
+    user.resetOtpExpiresAt = expiresAt;
+    await this.userRepository.save(user);
+
+    if (user.email && dto.identifier === user.email) {
+      await this.mailService.sendPasswordResetOtp({
+        to: user.email,
+        name: user.fullName,
+        otp,
+      });
+    } else if (user.phone && dto.identifier === user.phone) {
+      await this.smsService.sendPasswordResetOtp(user.phone, otp);
+    }
+  }
+
+  async verifyResetOtp(dto: VerifyResetOtpDto): Promise<{ token: string }> {
+    const user = await this.usersService.findByIdentifier(dto.identifier);
+    if (!user || !user.resetOtp || !user.resetOtpExpiresAt || new Date() > user.resetOtpExpiresAt) {
+      throw new BadRequestException('Invalid or expired OTP');
+    }
+
+    const isMatch = await bcrypt.compare(dto.otp, user.resetOtp);
+    if (!isMatch) {
+      throw new BadRequestException('Invalid OTP');
+    }
+
+    // OTP is valid. Clear it and issue a short-lived reset token
+    user.resetOtp = undefined;
+    user.resetOtpExpiresAt = undefined;
+    await this.userRepository.save(user);
+
+    const token = await this.jwtService.signAsync(
+      { sub: user.id, purpose: 'password-reset' },
+      {
+        secret: this.configService.get<string>('app.jwtSecret'),
+        expiresIn: '15m',
+      },
+    );
+
+    return { token };
+  }
+
+  async resetPassword(dto: ResetPasswordDto): Promise<void> {
+    let payload: { sub: string; purpose: string };
+
+    try {
+      payload = await this.jwtService.verifyAsync<{ sub: string; purpose: string }>(dto.token, {
+        secret: this.configService.get<string>('app.jwtSecret'),
+      });
+    } catch {
+      throw new UnauthorizedException('Reset token is invalid or has expired');
+    }
+
+    if (payload.purpose !== 'password-reset') {
+      throw new UnauthorizedException('Invalid token purpose');
+    }
+
+    const user = await this.userRepository.findOne({ where: { id: payload.sub } });
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    user.password = dto.newPassword;
+    user.refreshToken = undefined; // Invalidate current sessions
+    
+    await this.userRepository.save(user);
+  }
+
   // ─── Helpers ──────────────────────────────────────────────────────────────
 
   private async generateTokens(user: User): Promise<TokenPair> {
@@ -167,8 +252,11 @@ export class AuthService {
     return { accessToken, refreshToken };
   }
 
+  
+
   private async storeRefreshToken(userId: string, rawToken: string): Promise<void> {
     const hashed = await bcrypt.hash(rawToken, 10);
     await this.userRepository.update(userId, { refreshToken: hashed });
   }
+
 }

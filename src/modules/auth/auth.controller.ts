@@ -8,7 +8,7 @@ import {
 } from '@nestjs/swagger';
 import { Request } from 'express';
 import { AuthService } from './auth.service';
-import { AuthResendVerificationEmailDto, VerifyEmailDto } from './dto/auth.dto';
+import { AuthResendVerificationEmailDto, VerifyEmailDto, ForgotPasswordDto, ResetPasswordDto, VerifyResetOtpDto } from './dto/auth.dto';
 import { LoginDto } from '../users/dto';
 import { AuthGuard, RefreshGuard } from '@/common/guards';
 import { Auth, CurrentUser, CurrentRefreshToken } from '@/common/decorators';
@@ -148,6 +148,52 @@ export class AuthController {
       success: true,
       statusCode: HttpStatus.OK,
       message: 'Verification email resent if the email exists in our system.',
+    });
+  }
+
+  /**
+   * Request password reset via email or SMS
+   */
+  @Post('forgot-password')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Request password reset via email or SMS' })
+  async forgotPassword(@Body() dto: ForgotPasswordDto) {
+    await this.authService.forgotPassword(dto);
+    return this.responseService.response({
+      success: true,
+      statusCode: HttpStatus.OK,
+      message: 'If the identifier exists, a password reset OTP has been sent.',
+    });
+  }
+
+  /**
+   * Verify OTP to get a password reset token
+   */
+  @Post('verify-reset-otp')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Verify OTP and get a password reset token' })
+  async verifyResetOtp(@Body() dto: VerifyResetOtpDto) {
+    const result = await this.authService.verifyResetOtp(dto);
+    return this.responseService.response({
+      success: true,
+      statusCode: HttpStatus.OK,
+      message: 'OTP verified successfully',
+      data: result,
+    });
+  }
+
+  /**
+   * Verify token and reset password
+   */
+  @Post('reset-password')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Verify token and reset password' })
+  async resetPassword(@Body() dto: ResetPasswordDto) {
+    await this.authService.resetPassword(dto);
+    return this.responseService.response({
+      success: true,
+      statusCode: HttpStatus.OK,
+      message: 'Password reset successful',
     });
   }
 }

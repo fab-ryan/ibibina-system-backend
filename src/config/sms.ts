@@ -2,10 +2,9 @@ import { registerAs } from '@nestjs/config';
 
 export interface SmsConfigInterface {
   enabled: boolean;
-  provider: 'twilio' | 'mock';
-  accountSid: string;
-  authToken: string;
-  fromNumber: string;
+  provider: 'pindo' | 'mock';
+  pindoToken: string;
+  pindoSender: string;
   mobileAppUrl: string;
 }
 
@@ -13,10 +12,9 @@ export const SmsConfig = registerAs(
   'sms',
   (): SmsConfigInterface => ({
     enabled: process.env.SMS_ENABLED === 'true',
-    provider: (process.env.SMS_PROVIDER as 'twilio' | 'mock') || 'twilio',
-    accountSid: process.env.TWILIO_ACCOUNT_SID || '',
-    authToken: process.env.TWILIO_AUTH_TOKEN || '',
-    fromNumber: process.env.TWILIO_FROM_NUMBER || '',
+    provider: (process.env.SMS_PROVIDER as 'pindo' | 'mock') || 'pindo',
+    pindoToken: process.env.PINDO_TOKEN || '',
+    pindoSender: process.env.PINDO_SENDER || 'Ibibina',
     mobileAppUrl: process.env.MOBILE_APP_URL || process.env.APP_URL || 'http://localhost:3000',
   }),
 );

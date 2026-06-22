@@ -7,6 +7,12 @@ export interface SendEmailVerificationOptions {
   verificationUrl: string;
 }
 
+export interface SendPasswordResetOtpOptions {
+  to: string;
+  name: string;
+  otp: string;
+}
+
 export interface SendWelcomeOptions {
   to: string;
   name: string;
@@ -97,6 +103,25 @@ export class MailService {
       });
     } catch (err) {
       this.logger.error(`Failed to send group welcome email to ${to}`, err);
+      throw err;
+    }
+  }
+
+  async sendPasswordResetOtp(options: SendPasswordResetOtpOptions): Promise<void> {
+    const { to, name, otp } = options;
+    try {
+      await this.mailerService.sendMail({
+        to,
+        subject: 'Password Reset Verification Code — Ibibina System',
+        template: 'password-reset',
+        context: {
+          name,
+          otp,
+          year: new Date().getFullYear(),
+        },
+      });
+    } catch (err) {
+      this.logger.error(`Failed to send password reset email to ${to}`, err);
       throw err;
     }
   }

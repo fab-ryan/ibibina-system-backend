@@ -77,6 +77,15 @@ export class User {
   @Column({ nullable: true, type: 'text' })
   refreshToken?: string;
 
+  /** Hashed reset OTP — used for forgot password flow */
+  @Exclude()
+  @Column({ nullable: true, type: 'text' })
+  resetOtp?: string;
+
+  /** Expiration date for the reset OTP */
+  @Column({ nullable: true, type: 'timestamp' })
+  resetOtpExpiresAt?: Date;
+
   @CreateDateColumn()
   createdAt!: Date;
 
