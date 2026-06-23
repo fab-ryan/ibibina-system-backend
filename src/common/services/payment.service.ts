@@ -21,7 +21,7 @@ export class PaymentService {
     try {
       const auth = await this.authorizePayment();
       this.logger.info('Payment authorized, access token:', auth.access);
-      // Here you would call Paypack's API to create a payment using the access token
+
       const paymentResponse = await fetch(`${process.env.PAYPACK_API_URL}transactions/cashin`, {
         method: 'POST',
         headers: {
