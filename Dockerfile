@@ -10,9 +10,9 @@ RUN apk add --no-cache dumb-init
 
 WORKDIR /app
 
-ENV NODE_ENV=production
-
-# ── Install all deps (NestJS CLI is a devDep needed for build) ──
+# ── Install ALL deps first (devDeps needed for nest build) ───────
+#    NOTE: do NOT set NODE_ENV=production here — npm would skip
+#    devDependencies and the `nest` CLI binary would not be installed
 COPY package.json package-lock.json ./
 RUN npm ci
 
@@ -22,6 +22,9 @@ RUN npm run build
 
 # ── Drop dev dependencies after build to keep the image lean ────
 RUN npm prune --omit=dev
+
+# ── Set production mode AFTER the build ─────────────────────────
+ENV NODE_ENV=production
 
 # ── Expose app port ─────────────────────────────────────────────
 EXPOSE 5100

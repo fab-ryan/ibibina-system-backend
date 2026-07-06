@@ -29,7 +29,6 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-      target: production
     container_name: ibibina-backend
     restart: unless-stopped
     env_file:
