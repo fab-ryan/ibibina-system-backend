@@ -1,8 +1,5 @@
 services:
 
-  # ─────────────────────────────────────────────
-  #  PostgreSQL — bundled so no separate install
-  # ─────────────────────────────────────────────
   postgres:
     image: postgres:16-alpine
     container_name: ibibina-postgres
@@ -12,7 +9,7 @@ services:
       POSTGRES_PASSWORD: ryan
       POSTGRES_DB: ibibina_db
     ports:
-      - "5433:5432"           # expose to host for external tools (e.g. DBeaver)
+      - "5433:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -20,11 +17,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-      start_period: 10s
 
-  # ─────────────────────────────────────────────
-  #  NestJS backend
-  # ─────────────────────────────────────────────
   backend:
     build:
       context: .
@@ -32,19 +25,18 @@ services:
     container_name: ibibina-backend
     restart: unless-stopped
     env_file:
-      - .env                  # loads all variables from your .env file
+      - .env
     environment:
       NODE_ENV: production
-      DB_HOST: postgres       # override host to point at the postgres service
+      DB_HOST: postgres
       DB_PORT: 5432
     ports:
       - "5100:5100"
     volumes:
-      - ./logs:/app/logs      # persist logs on the host
+      - ./logs:/app/logs
     depends_on:
       postgres:
         condition: service_healthy
 
 volumes:
   postgres_data:
-    driver: local
