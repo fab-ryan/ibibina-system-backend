@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-unsafe-enum-comparison */
-import * as crypto from 'crypto';
+import * as crypto from 'node:crypto';
 import * as fs from 'fs';
 import * as path from 'path';
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
