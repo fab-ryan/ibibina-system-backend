@@ -1,0 +1,41 @@
+# ── Node ────────────────────────────────────────
+node_modules
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# ── TypeScript source (not needed in image) ─────
+src
+test
+scripts
+
+# ── Build artefacts already handled by stages ───
+dist
+
+# ── Logs ─────────────────────────────────────────
+logs
+*.log
+
+# ── Environment & secrets ────────────────────────
+.env
+.env.*
+!.env.example
+
+# ── Editor & OS ──────────────────────────────────
+.DS_Store
+.idea
+.vscode
+*.swp
+*.swo
+
+# ── Git ──────────────────────────────────────────
+.git
+.gitignore
+
+# ── CI / Docker itself ───────────────────────────
+.github
+docker-compose*.yml
+Dockerfile*
+
+# ── Coverage & test output ───────────────────────
+coverage
