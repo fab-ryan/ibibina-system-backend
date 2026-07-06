@@ -9,6 +9,7 @@ import { UserRepository } from '@/modules/users/repositories';
 import { Group } from '@/modules/groups/entities/group.entity';
 import { GroupRepository } from '@/modules/groups/repositories';
 import { PaginationHelper } from '@/utils';
+import { CommonModule } from '@/common';
 
 @Module({
   imports: [
@@ -27,9 +28,11 @@ import { PaginationHelper } from '@/utils';
       synchronize: process.env.DB_SYNCHRONIZE === 'true',
       logging: false,
     }),
+    CommonModule,
     TypeOrmModule.forFeature([User, Group]),
     GroupsModule,
   ],
-  providers: [UserSeeder, UserRepository, GroupRepository, PaginationHelper],
+  providers: [PaginationHelper, UserSeeder, UserRepository, GroupRepository],
+  exports: [TypeOrmModule.forFeature([User, Group]), PaginationHelper, UserRepository, GroupRepository],
 })
-export class SeederModule {}
+export class SeederModule { }

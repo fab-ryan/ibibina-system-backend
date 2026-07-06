@@ -6,6 +6,7 @@ import { LoggerService } from './services/logger.service';
 import { ResponseService } from './services/response.service';
 import { AuthenticateMiddleware } from './middlewares/authenticate.middleware';
 import { PaginationHelper } from '@/utils';
+import { JwtService } from '@nestjs/jwt';
 
 @Global()
 @Module({
@@ -16,6 +17,7 @@ import { PaginationHelper } from '@/utils';
     ResponseService,
     AuthenticateMiddleware,
     PaginationHelper,
+    JwtService
   ],
   exports: [
     I18nModule,
@@ -26,6 +28,7 @@ import { PaginationHelper } from '@/utils';
     ResponseService,
     AuthenticateMiddleware,
     PaginationHelper,
+    JwtService
   ],
 })
-export class CommonModule {}
+export class CommonModule { }

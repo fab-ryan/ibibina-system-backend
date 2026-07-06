@@ -7,7 +7,7 @@ async function bootstrap() {
     logger: ['log', 'error', 'warn'],
   });
 
-  const userSeeder = app.get(UserSeeder);
+  const userSeeder = await app.resolve(UserSeeder);
 
   const command = process.argv[2];
 
