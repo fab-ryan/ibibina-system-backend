@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-unsafe-enum-comparison */
-import * as crypto from 'node:crypto';
+import uuid from "uuid"
 import * as fs from 'fs';
 import * as path from 'path';
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
@@ -25,6 +25,7 @@ import {
   ReportListQueryDto,
   ReportListResponse,
 } from './dto/report.dto';
+
 
 const MONTH_LABELS = [
   'Jan',
@@ -60,7 +61,7 @@ export class ReportsService {
     private readonly penaltyRepository: Repository<Penalty>,
     @InjectRepository(Transaction)
     private readonly transactionRepository: Repository<Transaction>,
-  ) {}
+  ) { }
 
   // ─── List saved reports ───────────────────────────────────────────────────
 
@@ -145,7 +146,7 @@ export class ReportsService {
     }
 
     // Pre-generate the UUID so we can name the file before saving to DB
-    const id = crypto.randomUUID();
+    const id = uuid.v4();
 
     // Write the Excel file first — this is the report artifact, not the raw data
     const { fileUrl, sizeBytes } = this.writeExcel(id, dto.name ?? autoName, data);

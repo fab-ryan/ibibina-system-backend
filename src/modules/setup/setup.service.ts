@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { join } from 'path';
 import { promises as fs } from 'fs';
-import * as crypto from 'node:crypto';
+import { randomBytes } from 'node:crypto';
 
 @Injectable()
 export class SetupService {
@@ -71,7 +71,7 @@ export class SetupService {
       FALLBACK_LANGUAGE: 'en',
       I18N_LOGGING: 'false',
       BACKEND_DOMAIN: 'http://localhost:3000',
-      JWT_SECRET: this.generateSecureSecret(),
+      JWT_SECRET: '',
       GOOGLE_CLIENT_ID: '',
       GOOGLE_CLIENT_SECRET: '',
       GOOGLE_CALLBACK_URL: 'http://localhost:3000/api/auth/google/callback',
@@ -81,9 +81,6 @@ export class SetupService {
       MAIL_USER: '',
       MAIL_FROM: 'noreply@fab-finder.com',
     };
-  }
-  private generateSecureSecret(length = 64): string {
-    return crypto.randomBytes(length).toString('hex');
   }
   private async updateEnvFile(
     variables: string[],
