@@ -1,43 +1,40 @@
-FROM node:22-alpine AS production
-
-RUN apk add --no-cache dumb-init
+# ────────────────
+# 1. BUILD STAGE
+# ────────────────
+FROM node:22-alpine AS builder
 
 WORKDIR /app
 
 COPY package*.json ./
-# Install only production dependencies
-RUN npm ci --omit=dev && npm cache clean --force
+RUN npm install
 
 COPY . .
 
-# Generate i18n types
-RUN npm run i18n:generate
-
 RUN npm run build
 
-RUN npm prune --omit=dev
 
-ENV NODE_ENV=production
+# ────────────────
+# 2. PRODUCTION STAGE
+# ────────────────
+FROM node:22-alpine AS production
 
+WORKDIR /app
 
-# Copy built application and necessary files from builder stage
-COPY --from=builder --chown=nestjs:nodejs /app/dist ./dist
-COPY --from=builder --chown=nestjs:nodejs /app/src/i18n ./src/i18n
-COPY --from=builder --chown=nestjs:nodejs /app/src/templates ./src/templates
+RUN apk add --no-cache dumb-init
 
-# Create uploads directory with proper permissions
-RUN mkdir -p uploads/resumes && \
-    chown -R nestjs:nodejs uploads
+# create user
+RUN addgroup -g 1001 -S nodejs && \
+    adduser -S nestjs -u 1001
 
-EXPOSE 5100
+# copy built files from builder
+COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/package*.json ./
 
-
-
-RUN mkdir -p logs && chown nestjs:nodejs logs
+RUN npm install --omit=dev
 
 USER nestjs
 
-ENTRYPOINT ["dumb-init", "--"]
+EXPOSE 5100
 
-# Start the application
+ENTRYPOINT ["dumb-init", "--"]
 CMD ["node", "dist/main.js"]
