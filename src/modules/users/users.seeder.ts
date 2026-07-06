@@ -12,7 +12,7 @@ export class UserSeeder {
   constructor(
     private readonly userRepository: UserRepository,
     private readonly groupRepository: GroupRepository,
-  ) {}
+  ) { }
 
   async seed(): Promise<void> {
     this.logger.log('Starting user seeding...');
@@ -111,7 +111,11 @@ export class UserSeeder {
           continue;
         }
 
-        const user = this.userRepository.create(userData);
+        const user = this.userRepository.create({
+          ...userData,
+          isEmailVerified: true,
+
+        });
         await this.userRepository.save(user);
         this.logger.log(
           `✓ Created ${user.role} user: ${user.firstName} ${user.lastName} (${identifier})`,
