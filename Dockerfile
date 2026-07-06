@@ -1,57 +1,38 @@
 # ═══════════════════════════════════════════════════════════
-#  Stage 1 – Builder
-#  Installs all dependencies and compiles TypeScript → dist/
+#  Build & Run — uses npm scripts from package.json
+#    npm run build  →  nest build  (compiles TS → dist/)
+#    npm run start:prod  →  node dist/main  (runs the build)
 # ═══════════════════════════════════════════════════════════
-FROM node:22-alpine AS builder
+FROM node:22-alpine
 
-WORKDIR /app
-
-# Copy manifests first for better layer caching
-COPY package.json package-lock.json ./
-
-RUN npm ci
-
-# Copy source
-COPY . .
-
-# Compile TypeScript (outputs to dist/)
-RUN npm run build
-
-# ═══════════════════════════════════════════════════════════
-#  Stage 2 – Production image
-#  Only production deps + compiled output
-# ═══════════════════════════════════════════════════════════
-FROM node:22-alpine AS production
-
-# Install dumb-init for proper PID-1 / signal handling
+# dumb-init ensures signals (SIGTERM etc.) reach the Node process
 RUN apk add --no-cache dumb-init
 
 WORKDIR /app
 
 ENV NODE_ENV=production
 
-# Copy manifests and install production deps only
+# ── Install all deps (NestJS CLI is a devDep needed for build) ──
 COPY package.json package-lock.json ./
-RUN npm ci --omit=dev
+RUN npm ci
 
-# Copy compiled app from builder stage
-COPY --from=builder /app/dist ./dist
+# ── Copy source and run: npm run build (nest build → dist/) ─────
+COPY . .
+RUN npm run build
 
-# Copy i18n and email templates (copied by nest-cli as assets)
-COPY --from=builder /app/dist ./dist
+# ── Drop dev dependencies after build to keep the image lean ────
+RUN npm prune --omit=dev
 
-# Expose the application port
+# ── Expose app port ─────────────────────────────────────────────
 EXPOSE 5100
 
-# Create non-root user for security
+# ── Non-root user for security ──────────────────────────────────
 RUN addgroup -g 1001 -S nodejs && \
     adduser  -S nestjs -u 1001
-
-# Create logs directory and assign ownership
 RUN mkdir -p logs && chown nestjs:nodejs logs
 
 USER nestjs
 
-# Use dumb-init as PID 1 so signals are forwarded correctly
+# ── Start: npm run start:prod (= node dist/main) ────────────────
 ENTRYPOINT ["dumb-init", "--"]
-CMD ["node", "dist/main.js"]
+CMD ["npm", "run", "start:prod"]
