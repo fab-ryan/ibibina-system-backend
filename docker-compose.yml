@@ -12,7 +12,7 @@ services:
       POSTGRES_PASSWORD: ryan
       POSTGRES_DB: ibibina_db
     ports:
-      - "5432:5432"           # expose to host for external tools (e.g. DBeaver)
+      - "5433:5432"           # expose to host for external tools (e.g. DBeaver)
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
