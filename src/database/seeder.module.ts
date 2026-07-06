@@ -8,6 +8,7 @@ import { User } from '../modules/users/entities/user.entity';
 import { UserRepository } from '@/modules/users/repositories';
 import { Group } from '@/modules/groups/entities/group.entity';
 import { GroupRepository } from '@/modules/groups/repositories';
+import { PaginationHelper } from '@/utils';
 
 @Module({
   imports: [
@@ -29,6 +30,6 @@ import { GroupRepository } from '@/modules/groups/repositories';
     TypeOrmModule.forFeature([User, Group]),
     GroupsModule,
   ],
-  providers: [UserSeeder, UserRepository, GroupRepository],
+  providers: [UserSeeder, UserRepository, GroupRepository, PaginationHelper],
 })
 export class SeederModule {}
