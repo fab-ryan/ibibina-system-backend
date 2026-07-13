@@ -72,6 +72,9 @@ export class User {
   @Column({ nullable: true, length: 500 })
   profilePicture?: string;
 
+  @Column({ default: true })
+  changedPassword?: boolean
+
   /** Hashed refresh token — cleared on logout, rotated on every refresh */
   @Exclude()
   @Column({ nullable: true, type: 'text' })
@@ -112,4 +115,7 @@ export class User {
   get isAdmin(): boolean {
     return ADMIN_ROLES.includes(this.role);
   }
+
+  savings?: number;
+  loanBalance?: number;
 }

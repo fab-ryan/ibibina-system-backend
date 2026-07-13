@@ -136,7 +136,7 @@ export class PenaltiesService {
       referenceId: penalty.id,
       userId: penalty.userId,
       groupId: penalty.groupId,
-      amount: penalty.amount,
+      amount: Number(penalty.amount),
       currency: penalty.currency,
       paymentMethod: dto.paymentMethod,
       paidAt: penalty.paidAt,

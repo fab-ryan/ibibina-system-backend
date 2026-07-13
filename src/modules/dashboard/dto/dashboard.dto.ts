@@ -153,6 +153,7 @@ export interface MemberContributionRow {
   months: ContributionMonthStatus[];
   /** Total pending penalty amount for this member in this group */
   penalty: number;
+  phoneNumber?: string;
 }
 
 export interface ContributionOverviewResponse {
@@ -205,4 +206,11 @@ export interface FinanceOverviewResponse {
   group: { name: string; code: string };
   summary: FinanceSummary;
   monthly: MonthlyBreakdownItem[];
+}
+
+export interface AdminOverviewResponse {
+  activeUsers: number;
+  registeredGroups: number;
+  securityScore: number;
+  systemUptime: number;
 }

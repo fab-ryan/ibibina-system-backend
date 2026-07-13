@@ -27,7 +27,7 @@ export interface LoanSettingsSnapshot {
   maxDurationMonths: number;
   collateralRequired: boolean;
   maxLoanMultiplier: number;
-  contributionFrequency: 'weekly' | 'monthly';
+  contributionFrequency: 'weekly' | 'two' | 'twice_a_week' | 'thrice_a_week' | 'monthly' | 'yearly';
 }
 
 @Entity('loans')

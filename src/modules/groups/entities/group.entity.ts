@@ -20,7 +20,7 @@ export enum GroupPurpose {
 export interface GroupSettings {
   contributionAmount: number;
   contributionCurrency: string;
-  contributionFrequency: 'weekly' | 'monthly';
+  contributionFrequency: 'weekly' | "two" | 'twice_a_week' | 'thrice_a_week' | 'monthly' | 'yearly';
   meetingDay: 'monday' | 'tuesday' | 'wednesday' | 'thursday' | 'friday' | 'saturday' | 'sunday';
   allowLoans: boolean;
   maxLoanMultiplier: number;

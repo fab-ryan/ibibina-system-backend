@@ -17,6 +17,8 @@ import {
 import { Penalty, PenaltyStatus } from '@/modules/penalties/entities/penalty.entity';
 import { TransactionType } from './entities/transaction.entity';
 import { PaginateResult } from '@/utils/paginate';
+import { BadRequestException } from '@/core';
+import { Loan, LoanStatus } from '../loans/entities';
 
 // ─── Paypack webhook payload shape ─────────────────────────────────────────────
 interface PaypackWebhookPayload {
@@ -35,9 +37,11 @@ export class TransactionsService {
     private readonly paymentService: PaymentService,
     @InjectRepository(Contribution)
     private readonly contributionRepository: Repository<Contribution>,
+    @InjectRepository(Loan)
+    private readonly loanRepository: Repository<Loan>,
     @InjectRepository(Penalty)
     private readonly penaltyRepository: Repository<Penalty>,
-  ) {}
+  ) { }
 
   // ─── Internal: create a transaction record ──────────────────────────────────
 
@@ -74,50 +78,105 @@ export class TransactionsService {
 
   // ─── Handle Paypack webhook ─────────────────────────────────────────────────
 
-  async handlePaypackWebhook(payload: PaypackWebhookPayload): Promise<void> {
-    if (!payload.ref) return;
+  async handlePaypackWebhook(payload: any): Promise<void> {
+    const data = payload.data || payload;
+    if (!data.ref) return;
 
-    const tx = await this.transactionRepository.findByMomoRef(payload.ref);
+    const tx = await this.transactionRepository.findByMomoRef(data.ref);
     if (!tx) return; // unknown ref — ignore silently
 
-    if (payload.status === 'successful') {
+    if (data.status === 'successful') {
       tx.status = TransactionStatus.COMPLETED;
       await this.transactionRepository.save(tx);
 
-      // Mark the related contribution as PAID or PARTIAL (if not yet fully paid)
-      if (tx.type === TransactionType.CONTRIBUTION) {
-        const contribution = await this.contributionRepository.findOne({
-          where: { id: tx.referenceId },
-        });
-        if (
-          contribution &&
-          contribution.status !== ContributionStatus.PAID &&
-          contribution.status !== ContributionStatus.WAIVED
-        ) {
-          const newTotal = Number(contribution.paidAmount ?? 0) + Number(tx.amount);
-          contribution.paidAmount = newTotal;
-          contribution.status =
-            newTotal >= Number(contribution.amount)
-              ? ContributionStatus.PAID
-              : ContributionStatus.PARTIAL;
-          await this.contributionRepository.save(contribution);
-        }
-      }
-
-      // Mark the related penalty as PAID (if still pending)
-      if (tx.type === TransactionType.PENALTY) {
-        const penalty = await this.penaltyRepository.findOne({
-          where: { id: tx.referenceId },
-        });
-        if (penalty && penalty.status === PenaltyStatus.PENDING) {
-          penalty.status = PenaltyStatus.PAID;
-          penalty.paidAt = new Date();
-          await this.penaltyRepository.save(penalty);
-        }
-      }
-    } else if (payload.status === 'failed') {
+      await this.processCompletedTransaction(tx);
+    } else if (data.status === 'failed') {
       tx.status = TransactionStatus.FAILED;
       await this.transactionRepository.save(tx);
+    }
+  }
+
+  // ─── Approve / Reject Pending Transactions ─────────────────────────────────
+
+  async approve(id: string, actor: AuthUserType, notes?: string): Promise<void> {
+    const tx = await this.findOne(id, actor);
+    if (tx.status !== TransactionStatus.PENDING) {
+      throw new BadRequestException('Only pending transactions can be approved');
+    }
+    tx.status = TransactionStatus.COMPLETED;
+    if (tx.type === TransactionType.CONTRIBUTION) {
+      const contribution = await this.contributionRepository.findOne({ where: { id: tx.referenceId } });
+      if (!contribution) {
+        throw new BadRequestException('Contribution not found');
+      }
+      contribution.status = ContributionStatus.PAID;
+      contribution.paidAmount = tx.amount;
+      await this.contributionRepository.save(contribution);
+    }
+    else if (tx.type === TransactionType.PENALTY) {
+      const penalty = await this.penaltyRepository.findOne({ where: { id: tx.referenceId } });
+      if (!penalty) {
+        throw new BadRequestException('Penalty not found');
+      }
+      penalty.status = PenaltyStatus.PAID;
+      penalty.amount = tx.amount;
+      await this.penaltyRepository.save(penalty);
+    }
+
+    else if (tx.type === TransactionType.LOAN_REPAYMENT) {
+      const loan = await this.loanRepository.findOne({ where: { id: tx.referenceId } });
+      if (!loan) {
+        throw new BadRequestException('Loan not found');
+      }
+      loan.status = LoanStatus.APPROVED;
+      loan.disbursedAmount = tx.amount;
+      await this.loanRepository.save(loan);
+    }
+    if (notes) tx.notes = tx.notes ? `${tx.notes}\nApproval Notes: ${notes}` : notes;
+    await this.transactionRepository.save(tx);
+    await this.processCompletedTransaction(tx);
+  }
+
+  async reject(id: string, actor: AuthUserType, reason: string): Promise<void> {
+    if (!reason) throw new BadRequestException('Rejection reason is required');
+    const tx = await this.findOne(id, actor);
+    if (tx.status !== TransactionStatus.PENDING) {
+      throw new BadRequestException('Only pending transactions can be rejected');
+    }
+    tx.status = TransactionStatus.FAILED;
+    tx.notes = tx.notes ? `${tx.notes}\nReject Reason: ${reason}` : reason;
+    await this.transactionRepository.save(tx);
+  }
+
+  private async processCompletedTransaction(tx: Transaction): Promise<void> {
+    if (tx.type === TransactionType.CONTRIBUTION) {
+      const contribution = await this.contributionRepository.findOne({
+        where: { id: tx.referenceId },
+      });
+      if (
+        contribution &&
+        contribution.status !== ContributionStatus.PAID &&
+        contribution.status !== ContributionStatus.WAIVED
+      ) {
+        const newTotal = Number(contribution.paidAmount ?? 0) + Number(tx.amount);
+        contribution.paidAmount = newTotal;
+        contribution.status =
+          newTotal >= Number(contribution.amount)
+            ? ContributionStatus.PAID
+            : ContributionStatus.PARTIAL;
+        await this.contributionRepository.save(contribution);
+      }
+    }
+
+    if (tx.type === TransactionType.PENALTY) {
+      const penalty = await this.penaltyRepository.findOne({
+        where: { id: tx.referenceId },
+      });
+      if (penalty && penalty.status === PenaltyStatus.PENDING) {
+        penalty.status = PenaltyStatus.PAID;
+        penalty.paidAt = new Date();
+        await this.penaltyRepository.save(penalty);
+      }
     }
   }
 

@@ -19,7 +19,8 @@ export class UserRepository extends Repository<User> {
   }
 
   async findByPhone(phone: string): Promise<User | null> {
-    return this.findOne({ where: { phone: this.formatPhone(phone) } });
+    const formatted = this.formatPhone(phone);
+    return this.findOne({ where: [{ phone }, { phone: formatted }] });
   }
 
   /**
@@ -30,7 +31,9 @@ export class UserRepository extends Repository<User> {
   async findByIdentifier(identifier: string): Promise<User | null> {
     const byEmail = await this.findOne({ where: { email: identifier } });
     if (byEmail) return byEmail;
-    return this.findOne({ where: { phone: this.formatPhone(identifier) } });
+    
+    const formatted = this.formatPhone(identifier);
+    return this.findOne({ where: [{ phone: identifier }, { phone: formatted }] });
   }
 
   async findByRole(role: UserRole): Promise<User[]> {
@@ -54,9 +57,10 @@ export class UserRepository extends Repository<User> {
     if (filters.search) {
       const search = `%${filters.search}%`;
       userQuery.andWhere(
-        '(user.firstName ILIKE :search OR user.lastName ILIKE :xsearch OR user.email ILIKE :search OR user.phone ILIKE :search)',
+        '(user.firstName ILIKE :search OR user.lastName ILIKE :search OR user.email ILIKE :search OR user.phone ILIKE :search)',
         { search },
       );
+      delete filters.search
     }
     filterQueryBuilderFromRequest(userQuery, filters as AssociativeArray);
 
@@ -88,7 +92,8 @@ export class UserRepository extends Repository<User> {
   }
 
   async existsByPhone(phone: string): Promise<boolean> {
-    return this.existsBy({ phone: this.formatPhone(phone) });
+    const formatted = this.formatPhone(phone);
+    return this.exists({ where: [{ phone }, { phone: formatted }] });
   }
 
   async updateStatus(user: User, status: UserStatus): Promise<User> {

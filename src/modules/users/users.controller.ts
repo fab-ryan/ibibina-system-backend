@@ -185,6 +185,24 @@ export class UsersController {
     };
   }
 
+  /** Admin resets a user's password/PIN */
+  @Post(':id/reset-credentials')
+  @Auth(UserRole.ADMIN)
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Reset user password or PIN — admin role only' })
+  @ApiParam({ name: 'id', description: 'User UUID' })
+  async resetCredentials(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() currentUser: AuthUserType,
+  ) {
+    await this.usersService.resetCredentials(id, currentUser);
+    return {
+      success: true,
+      statusCode: HttpStatus.OK,
+      message: 'Credentials reset successfully. A temporary password or PIN has been sent to the user.',
+    };
+  }
+
   /** Non-admin users change their own PIN */
   @Patch(':id/pin')
   @Auth()

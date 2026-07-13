@@ -56,7 +56,7 @@ export class LoansService {
     private readonly transactionsService: TransactionsService,
     private readonly paginationHelper: PaginationHelper<Loan>,
     private readonly penaltyRepository: PenaltyRepository,
-  ) {}
+  ) { }
 
   // ─── Member requests a loan ───────────────────────────────────────────────
 
@@ -164,13 +164,26 @@ export class LoansService {
       throw new BadRequestException(`Loan cannot be approved — current status is "${loan.status}"`);
     }
 
+    // Check if the user already has an unpaid/active/defaulted loan
+    const existingActive = await this.loanRepository.findOne({
+      where: [
+        { userId: loan.userId, groupId: loan.groupId, status: LoanStatus.APPROVED },
+        { userId: loan.userId, groupId: loan.groupId, status: LoanStatus.ACTIVE },
+        { userId: loan.userId, groupId: loan.groupId, status: LoanStatus.DEFAULTED },
+      ],
+    });
+    if (existingActive) {
+      throw new BadRequestException(
+        `Member already has an outstanding loan (ID: ${existingActive.id}, Status: ${existingActive.status}). It must be fully repaid before approving a new one.`,
+      );
+    }
+
     const group = await this.groupRepository.findOne({ where: { id: loan.groupId } });
     if (!group) throw new NotFoundException(`Group ${loan.groupId} not found`);
 
     const loanSettings = group.settings?.loanSettings;
     const interestRate = loanSettings?.interestRate ?? 0.1;
 
-    console.log(dto.approvedAmount, loan.requestedAmount);
 
     loan.status = LoanStatus.APPROVED;
     loan.approvedById = actor.sub;
@@ -264,12 +277,40 @@ export class LoansService {
     return saved;
   }
 
+  // ─── Issue a loan directly (staff) ──────────────────────────────────────────
+
+  async issueLoan(dto: import('./dto/loan.dto').IssueLoanDto, actor: AuthUserType) {
+    // 1. Request
+    const requestDto = {
+      userId: dto.userId,
+      requestedAmount: dto.amount,
+      termMonths: dto.termMonths,
+      purpose: dto.purpose,
+    };
+    const loan = await this.request(requestDto, actor);
+
+    // 2. Approve
+    await this.approve(
+      loan.id,
+      { approvedAmount: dto.amount, approvalNotes: 'Auto-approved via direct issue' },
+      actor,
+    );
+
+    // 3. Disburse
+    return this.disburse(
+      loan.id,
+      { disbursedAmount: dto.amount, notes: dto.notes },
+      actor,
+    );
+  }
+
   // ─── Record a repayment installment ──────────────────────────────────────
 
   async recordRepayment(
     loanId: string,
     dto: RecordRepaymentDto,
     actor: AuthUserType,
+    file?: Express.Multer.File,
   ): Promise<LoanRepayment> {
     const loan = await this.findLoanOrFail(loanId);
 
@@ -296,10 +337,19 @@ export class LoansService {
         `Member has ${pendingPenaltyCount} unpaid penalt${pendingPenaltyCount === 1 ? 'y' : 'ies'} that must be settled before making a loan repayment`,
       );
     }
-
+    const principal = loan.disbursedAmount ?? loan.requestedAmount;
+    const interestRate = (loan.settingsSnapshot?.interestRate ?? 0) / 100;
+    const totalDue = principal * interestRate;
+    const repaid = Number(loan.totalDue ?? 0) - Number(loan.remainingBalance ?? 0);
+    const outstanding = Math.max(0, totalDue - repaid);
     const nextInstallment = await this.repaymentRepository.getNextPendingInstallment(loanId);
-    if (!nextInstallment) {
+
+
+    if (!nextInstallment && outstanding > 0) {
       throw new BadRequestException('No pending installments found for this loan');
+    }
+    if (!nextInstallment) {
+      throw new BadRequestException('Loan is already fully repaid');
     }
 
     const amountPaid = dto.amountPaid;
@@ -335,6 +385,8 @@ export class LoansService {
     await this.loanRepository.save(loan);
 
     // Record a repayment transaction
+    const referenceFileUrl = file ? `/uploads/references/${file.filename}` : undefined;
+
     await this.transactionsService.create({
       type: TransactionType.LOAN_REPAYMENT,
       referenceId: loanId,
@@ -349,6 +401,7 @@ export class LoansService {
       phoneNumber: dto.phoneNumber ?? user?.phone,
       recordedById: actor.sub,
       notes: dto.notes,
+      referenceFileUrl,
     });
 
     return savedRepayment;
@@ -431,9 +484,21 @@ export class LoansService {
   // ─── Helpers ─────────────────────────────────────────────────────────────
 
   /** Weekly: 1 month ≈ 4.33 weeks; monthly: 1 installment per month */
-  private computeInstallmentCount(termMonths: number, frequency: 'weekly' | 'monthly'): number {
+  private computeInstallmentCount(termMonths: number, frequency: 'weekly' | 'two' | 'twice_a_week' | 'thrice_a_week' | 'monthly' | 'yearly'): number {
     if (frequency === 'weekly') {
       return Math.ceil(termMonths * (52 / 12));
+    }
+    if (frequency == 'twice_a_week') {
+      return Math.ceil(termMonths * (52 / 12) * 2);
+    }
+    if (frequency == 'thrice_a_week') {
+      return Math.ceil(termMonths * (52 / 12) * 3);
+    }
+    if (frequency == 'yearly') {
+      return termMonths * 12;
+    }
+    if (frequency == 'two') {
+      return Math.ceil(termMonths * 6);
     }
     return termMonths;
   }
@@ -447,12 +512,25 @@ export class LoansService {
   private addPeriods(
     startDate: Date,
     installmentNumber: number,
-    frequency: 'weekly' | 'monthly',
+    frequency: 'weekly' | 'two' | 'twice_a_week' | 'thrice_a_week' | 'monthly' | 'yearly',
   ): Date {
     const d = new Date(startDate);
     if (frequency === 'weekly') {
       d.setUTCDate(d.getUTCDate() + (installmentNumber - 1) * 7);
-    } else {
+    }
+    else if (frequency == 'twice_a_week') {
+      d.setUTCDate(d.getUTCDate() + (installmentNumber - 1) * 7 * 2);
+    }
+    else if (frequency == 'thrice_a_week') {
+      d.setUTCDate(d.getUTCDate() + (installmentNumber - 1) * 7 * 3);
+    }
+    else if (frequency == 'yearly') {
+      d.setUTCMonth(d.getUTCMonth() + (installmentNumber - 1) * 12);
+    }
+    else if (frequency == 'two') {
+      d.setUTCMonth(d.getUTCMonth() + (installmentNumber - 1) * 6);
+    }
+    else {
       d.setUTCMonth(d.getUTCMonth() + (installmentNumber - 1));
     }
     return d;

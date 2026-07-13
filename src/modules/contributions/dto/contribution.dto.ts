@@ -17,15 +17,16 @@ import {
   Min,
   ValidateNested,
 } from 'class-validator';
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import { ContributionStatus } from '../entities/contribution.entity';
+import { PaymentMethod } from '@/enums';
 
 // ─── Period helpers ────────────────────────────────────────────────────────────
 // Weekly:  2026-W18
 // Monthly: 2026-05
-export const PERIOD_REGEX = /^(\d{4}-W(0[1-9]|[1-4]\d|5[0-3])|\d{4}-(0[1-9]|1[0-2]))$/;
+export const PERIOD_REGEX = /^(\d{4}|\d{4}-(0[1-9]|1[0-2]|Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)|\d{4}-W(0[1-9]|[1-4]\d|5[0-3])(?:-[1-3])?)$/;
 export const PERIOD_MESSAGE =
-  'period must be "YYYY-Www" for weekly (e.g. 2026-W18) or "YYYY-MM" for monthly (e.g. 2026-05)';
+  'period must be "YYYY", "YYYY-MM", "YYYY-MMM", "YYYY-Www", or "YYYY-Www-X" (where X is 1-3)';
 
 // ─── Record a single contribution ─────────────────────────────────────────────
 
@@ -48,6 +49,7 @@ export class RecordContributionDto {
   @ApiProperty({ example: '2026-05-10', description: 'ISO due date for this period' })
   @IsNotEmpty()
   @IsDateString()
+    
   dueDate!: string;
 
   @ApiPropertyOptional({
@@ -57,6 +59,7 @@ export class RecordContributionDto {
   @IsOptional()
   @IsNumber()
   @IsPositive()
+    @Type(() => Number)
   amount?: number;
 
   @ApiPropertyOptional({
@@ -64,8 +67,9 @@ export class RecordContributionDto {
     description: 'Actual amount paid (supports partial payments)',
   })
   @IsOptional()
-  @IsNumber()
+  @IsNumber() 
   @IsPositive()
+  @Type(() => Number)
   paidAmount?: number;
 
   @ApiPropertyOptional({ example: 'RWF', default: 'RWF' })
@@ -79,6 +83,7 @@ export class RecordContributionDto {
     description: 'Cycle sequence number within the group (e.g. 5th contribution)',
   })
   @IsOptional()
+  @Transform(({ value }) => Number(value))
   @IsInt()
   @Min(1)
   cycleNumber?: number;
@@ -92,9 +97,62 @@ export class RecordContributionDto {
   @IsOptional()
   @IsString()
   notes?: string;
+
+  @ApiPropertyOptional({ enum: PaymentMethod })
+  @IsOptional()
+  @IsEnum(PaymentMethod)
+  paymentMethod?: PaymentMethod;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  phoneNumber?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  bankRef?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  momoRef?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  referenceFileUrl?: string;
 }
 
-export class UpdateContributionDto extends PartialType(RecordContributionDto) {}
+export class UpdateContributionDto extends PartialType(RecordContributionDto) { }
+
+export class RecordPaymentDto {
+  @ApiProperty({ description: 'Member user UUID' })
+  @IsUUID()
+  @IsNotEmpty()
+  userId!: string;
+
+  @ApiProperty({ example: '2026-05' })
+  @IsNotEmpty()
+  @IsString()
+  @Matches(PERIOD_REGEX, { message: PERIOD_MESSAGE })
+  period!: string;
+
+  @ApiProperty({ description: 'Amount being paid' })
+  @IsNumber()
+  @IsPositive()
+  @Type(() => Number)
+  amount!: number;
+
+  @ApiProperty({ enum: PaymentMethod })
+  @IsEnum(PaymentMethod)
+  paymentMethod!: PaymentMethod;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  notes?: string;
+}
 
 // ─── Bulk: one period, many members ───────────────────────────────────────────
 
@@ -264,7 +322,7 @@ export class MemberCycleProgressItemDto {
 
 export class MemberCycleProgressResponseDto {
   @ApiProperty({ enum: ['weekly', 'monthly'], example: 'weekly' })
-  cadence!: 'weekly' | 'monthly';
+  cadence!: 'weekly' | 'monthly' | 'two' | 'twice_a_week' | 'thrice_a_week' | 'yearly';
 
   @ApiProperty({ example: '7f2fc845-b0fc-4edf-b5d0-1dce8ad02c6a' })
   groupId!: string;

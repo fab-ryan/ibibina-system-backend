@@ -9,6 +9,7 @@ import {
   LoanOverviewQueryDto,
   ContributionOverviewQueryDto,
   FinanceOverviewQueryDto,
+  AdminOverviewResponse,
 } from './dto/dashboard.dto';
 import { ResponseService } from '@/common/services/response.service';
 
@@ -103,6 +104,22 @@ export class DashboardController {
       success: true,
       data: overview,
       message: 'Finance overview retrieved successfully',
+    });
+  }
+
+  @Get('admin/overview')
+  @Auth(UserRole.ADMIN)
+  @ApiOperation({
+    summary: 'Admin dashboard overview stats',
+  })
+  async getAdminOverview(
+    @CurrentUser() actor: authenticateMiddleware.AuthUserType,
+  ) {
+    const overview = await this.dashboardService.getAdminOverview(actor);
+    return this.responseService.response({
+      success: true,
+      data: overview,
+      message: 'Admin dashboard overview retrieved successfully',
     });
   }
 }

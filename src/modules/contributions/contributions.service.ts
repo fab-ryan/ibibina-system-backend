@@ -28,6 +28,7 @@ import {
   PERIOD_MESSAGE,
   PERIOD_REGEX,
   RecordContributionDto,
+  RecordPaymentDto,
   UpdateContributionDto,
   WaiveContributionDto,
 } from './dto/contribution.dto';
@@ -70,7 +71,7 @@ export class ContributionsService {
     private readonly transactionsService: TransactionsService,
     private readonly activityService: ActivitiesService,
     private readonly responseService: ResponseService,
-  ) {}
+  ) { }
 
   // ─── Record a single contribution ─────────────────────────────────────────
 
@@ -116,7 +117,7 @@ export class ContributionsService {
       period,
       amount: resolvedAmount,
       currency: dto.currency ?? configuredCurrency ?? 'RWF',
-      status: dto.status ?? ContributionStatus.PAID,
+      status: dto.status ?? ContributionStatus.PENDING,
       paidAmount:
         dto.paidAmount ??
         (dto.status === ContributionStatus.PAID || !dto.status ? resolvedAmount : undefined),
@@ -127,54 +128,139 @@ export class ContributionsService {
     return this.contributionRepository.save(contribution);
   }
 
-  async giveContribution(dto: RecordContributionDto, actor: AuthUserType): Promise<Contribution> {
+  // ─── Record Payment directly (Find or Create -> Pay) ─────────────────────
+
+  async recordPayment(
+    dto: RecordPaymentDto,
+    actor: AuthUserType,
+    file?: Express.Multer.File,
+  ): Promise<Contribution> {
     const groupId = this.requireActorGroupId(actor);
-    const { userId, dueDate } = dto;
-    if (!userId) {
-      if (actor.role === UserRole.MEMBER) {
-        dto.userId = actor.sub;
-      }
-    }
+    const { userId, period, amount, paymentMethod, notes } = dto;
+
+    await this.assertGroupAccess(groupId, actor);
+    await this.assertMemberBelongsToGroup(userId, groupId);
+
     const group = await this.groupRepository.findOne({ where: { id: groupId } });
     if (!group) throw new NotFoundException(`Group ${groupId} not found`);
-    const contribution = this.contributionRepository.create({
-      ...dto,
-      groupId,
-      period: this.resolvePeriod(dto.period, dueDate, group),
+
+    let contribution = await this.contributionRepository.findOne({
+      where: { userId, groupId, period },
     });
-    try {
-      const existing = await this.contributionRepository.findOne({
-        where: { userId: dto.userId, groupId, period: contribution.period },
+
+    if (!contribution) {
+      // Create if it doesn't exist
+      contribution = this.contributionRepository.create({
+        userId,
+        groupId,
+        period,
+        dueDate: new Date().toISOString(), // Default to now if creating on the fly
+        amount,
+        currency: group.settings?.contributionCurrency ?? 'RWF',
+        status: ContributionStatus.PENDING,
+        paidAmount: 0,
+        settingsSnapshot: this.buildSettingsSnapshot(group),
+        recordedById: actor.sub,
+        notes,
       });
-      if (existing) {
-        if (existing.status === ContributionStatus.WAIVED) {
-          throw new BadRequestException(
-            `Contribution for period "${existing.period}" has been waived and cannot be paid.`,
-          );
-        }
+      contribution = await this.contributionRepository.save(contribution);
+    }
 
-        const alreadyPaid = Number(existing.paidAmount ?? 0);
-        const totalDue = Number(existing.amount ?? contribution.amount ?? 0);
+    // Now call the existing pay method
+    const payDto = {
+      paidAmount: amount,
+      paymentMethod,
+      notes,
+    };
 
-        if (totalDue > 0 && alreadyPaid >= totalDue) {
-          throw new BadRequestException(
-            `Contribution for period "${existing.period}" is already fully paid.`,
-          );
-        }
+    return this.pay(contribution.id, payDto, actor, file as Express.Multer.File);
+  }
 
-        const payingNow = Number(contribution.paidAmount ?? 0);
-        const newTotal = alreadyPaid + payingNow;
+  async giveContribution(
+    dto: RecordContributionDto,
+    actor: AuthUserType,
+    file?: Express.Multer.File,
+  ): Promise<Contribution> {
+    const groupId = this.requireActorGroupId(actor);
+    const { userId, dueDate, paymentMethod, phoneNumber, bankRef, momoRef } = dto;
 
-        existing.paidAmount = newTotal;
-        existing.status =
-          newTotal >= totalDue ? ContributionStatus.PAID : ContributionStatus.PARTIAL;
-
-        await this.contributionRepository.save(existing);
-        await this.activityService.logContributionActivity(existing, actor);
-        return existing;
+    let resolvedUserId = userId;
+    if (!resolvedUserId) {
+      if (actor.role === UserRole.MEMBER) {
+        resolvedUserId = actor.sub;
       }
-      await this.activityService.logContributionActivity(contribution, actor);
-      return await this.contributionRepository.save(contribution);
+    }
+
+    const group = await this.groupRepository.findOne({ where: { id: groupId } });
+    if (!group) throw new NotFoundException(`Group ${groupId} not found`);
+
+    const period = this.resolvePeriod(dto.period, dueDate, group);
+
+    try {
+      let existing = await this.contributionRepository.findOne({
+        where: { userId: resolvedUserId, groupId, period },
+      });
+
+      if (!existing) {
+        existing = this.contributionRepository.create({
+          ...dto,
+          userId: resolvedUserId,
+          groupId,
+          period,
+          status: ContributionStatus.PENDING,
+          paidAmount: 0,
+        });
+        existing = await this.contributionRepository.save(existing);
+      }
+
+      if (existing.status === ContributionStatus.WAIVED) {
+        throw new BadRequestException(
+          `Contribution for period "${existing.period}" has been waived and cannot be paid.`,
+        );
+      }
+
+      const totalDue = Number(existing.amount ?? dto.amount ?? 0);
+      const alreadyPaid = Number(existing.paidAmount ?? 0);
+
+      if (totalDue > 0 && alreadyPaid >= totalDue) {
+        throw new BadRequestException(
+          `Contribution for period "${existing.period}" is already fully paid.`,
+        );
+      }
+
+      const payingNow = Number(dto.paidAmount ?? totalDue - alreadyPaid);
+
+      // Keep status as PENDING for members, until verified by a Treasurer
+      // For MoMo, the webhook will update the status and paidAmount automatically.
+      existing.status = ContributionStatus.PENDING;
+      await this.contributionRepository.save(existing);
+      await this.activityService.logContributionActivity(existing, actor);
+
+      if (paymentMethod) {
+        let referenceFileUrl = dto.referenceFileUrl;
+        if (file) {
+          referenceFileUrl = `/uploads/${file.filename}`;
+        }
+
+        await this.transactionsService.create({
+          type: TransactionType.CONTRIBUTION,
+          referenceId: existing.id,
+          userId: existing.userId,
+          groupId: existing.groupId,
+          amount: payingNow,
+          currency: existing.currency ?? 'RWF',
+          paymentMethod,
+          paidAt: new Date(),
+          momoRef,
+          bankRef,
+          referenceFileUrl,
+          recordedById: actor.sub,
+          phoneNumber,
+          notes: dto.notes,
+        });
+      }
+
+      return existing;
     } catch (error) {
       const { message } = error instanceof Error ? error : { message: 'Unknown error' };
       throw new BadRequestException(message, message);
@@ -378,72 +464,81 @@ export class ContributionsService {
     actor: AuthUserType,
     file: Express.Multer.File,
   ): Promise<Contribution> {
-    const contribution = await this.contributionRepository.findOne({ where: { id } });
-    if (!contribution) throw new NotFoundException(`Contribution ${id} not found`);
+    try {
 
-    await this.assertGroupAccess(contribution.groupId, actor);
+      const contribution = await this.contributionRepository.findOne({ where: { id } });
+      if (!contribution) throw new NotFoundException(`Contribution ${id} not found`);
 
-    if (contribution.status === ContributionStatus.PAID) {
-      throw new BadRequestException('Contribution is already paid');
+      await this.assertGroupAccess(contribution.groupId, actor);
+
+      if (contribution.status === ContributionStatus.PAID) {
+        throw new BadRequestException('Contribution is already paid');
+      }
+      if (contribution.status === ContributionStatus.WAIVED) {
+        throw new BadRequestException('A waived contribution cannot be paid');
+      }
+
+      const alreadyPaid = Number(contribution.paidAmount ?? 0);
+      const totalDue = Number(contribution.amount);
+      const remaining = totalDue - alreadyPaid;
+
+      if (remaining <= 0) {
+        throw new BadRequestException('Contribution is already fully paid');
+      }
+
+      // Default: pay the full remaining balance
+      const payingNow = dto.paidAmount ?? remaining;
+
+      if (payingNow <= 0) {
+        throw new BadRequestException('Payment amount must be greater than zero');
+      }
+      if (payingNow > remaining) {
+        throw new BadRequestException(
+          `Payment amount (${payingNow}) exceeds the remaining balance (${remaining})`,
+        );
+      }
+
+      const newTotalPaid = alreadyPaid + payingNow;
+      const isFullyPaid = newTotalPaid >= totalDue;
+      const isMomo = dto.paymentMethod === PaymentMethod.MOMO;
+      const isMember = actor.role === 'member';
+
+      // For MoMo: leave status/paidAmount unchanged — webhook will confirm and update
+      // For CASH/BANK by MEMBER: leave unchanged — treasurer will verify and confirm
+      // For CASH/BANK by ADMIN: update immediately
+      if (!isMomo && !isMember) {
+        contribution.paidAmount = newTotalPaid;
+        contribution.status = isFullyPaid ? ContributionStatus.PAID : ContributionStatus.PARTIAL;
+      }
+
+      const saved = await this.contributionRepository.save(contribution);
+      if (file) {
+        const fileUrl = `/uploads/${file.filename}`;
+        dto.referenceFileUrl = fileUrl;
+      }
+      await this.transactionsService.create({
+        type: TransactionType.CONTRIBUTION,
+        referenceId: contribution.id,
+        userId: contribution.userId,
+        groupId: contribution.groupId,
+        amount: payingNow,
+        currency: contribution.currency,
+        paymentMethod: dto.paymentMethod,
+        paidAt: dto.paidAt ? new Date(dto.paidAt) : new Date(),
+        momoRef: dto.momoRef,
+        bankRef: dto.bankRef,
+        referenceFileUrl: dto.referenceFileUrl,
+        recordedById: actor.sub,
+        phoneNumber: dto.phoneNumber,
+        notes: dto.notes,
+        status: (!isMomo && isMember) ? TransactionStatus.PENDING : TransactionStatus.PENDING,
+      });
+
+      return saved;
     }
-    if (contribution.status === ContributionStatus.WAIVED) {
-      throw new BadRequestException('A waived contribution cannot be paid');
+    catch (error) {
+      throw new BadRequestException(error, error.message);
     }
-
-    const alreadyPaid = Number(contribution.paidAmount ?? 0);
-    const totalDue = Number(contribution.amount);
-    const remaining = totalDue - alreadyPaid;
-
-    if (remaining <= 0) {
-      throw new BadRequestException('Contribution is already fully paid');
-    }
-
-    // Default: pay the full remaining balance
-    const payingNow = dto.paidAmount ?? remaining;
-
-    if (payingNow <= 0) {
-      throw new BadRequestException('Payment amount must be greater than zero');
-    }
-    if (payingNow > remaining) {
-      throw new BadRequestException(
-        `Payment amount (${payingNow}) exceeds the remaining balance (${remaining})`,
-      );
-    }
-
-    const newTotalPaid = alreadyPaid + payingNow;
-    const isFullyPaid = newTotalPaid >= totalDue;
-    const isMomo = dto.paymentMethod === PaymentMethod.MOMO;
-
-    // For MoMo: leave status/paidAmount unchanged — webhook will confirm and update
-    // For CASH/BANK: update immediately
-    if (!isMomo) {
-      contribution.paidAmount = newTotalPaid;
-      contribution.status = isFullyPaid ? ContributionStatus.PAID : ContributionStatus.PARTIAL;
-    }
-
-    const saved = await this.contributionRepository.save(contribution);
-    if (file) {
-      const fileUrl = `/uploads/${file.filename}`;
-      dto.referenceFileUrl = fileUrl;
-    }
-    await this.transactionsService.create({
-      type: TransactionType.CONTRIBUTION,
-      referenceId: contribution.id,
-      userId: contribution.userId,
-      groupId: contribution.groupId,
-      amount: payingNow,
-      currency: contribution.currency,
-      paymentMethod: dto.paymentMethod,
-      paidAt: dto.paidAt ? new Date(dto.paidAt) : new Date(),
-      momoRef: dto.momoRef,
-      bankRef: dto.bankRef,
-      referenceFileUrl: dto.referenceFileUrl,
-      recordedById: actor.sub,
-      phoneNumber: dto.phoneNumber,
-      notes: dto.notes,
-    });
-
-    return saved;
   }
 
   // ─── Waive a contribution ──────────────────────────────────────────────────
@@ -623,6 +718,90 @@ export class ContributionsService {
         periods,
       };
     }
+    if (cadence === 'yearly') {
+      const yearlyStatuses = new Set<ContributionStatus>();
+      for (const item of contributions) {
+        if (item.period === `${targetYear}`) {
+          yearlyStatuses.add(item.status);
+        }
+      }
+
+      let status: MemberCycleProgressStatus;
+      if (yearlyStatuses.size > 0) {
+        status = getStatusFromSet(yearlyStatuses);
+      } else if (targetYear < currentYear) {
+        status = 'missed';
+      } else if (targetYear > currentYear) {
+        status = 'future';
+      } else {
+        status = 'upcoming';
+      }
+
+      return {
+        cadence,
+        groupId,
+        year: targetYear,
+        periods: [{ label: `${targetYear}`, status }],
+      };
+    }
+
+    if (['twice_a_week', 'thrice_a_week', 'two'].includes(cadence)) {
+      const multiplier = cadence === 'thrice_a_week' ? 3 : 2;
+      const multiWeeklyStatuses = new Map<string, Set<ContributionStatus>>();
+
+      for (const item of contributions) {
+        const matched = item.period.match(/^\d{4}-W(\d{2})-(\d)$/);
+        const fallbackMatched = item.period.match(/^\d{4}-W(\d{2})$/);
+        const weekNumber = matched ? Number(matched[1]) : (fallbackMatched ? Number(fallbackMatched[1]) : null);
+        const subCycle = matched ? Number(matched[2]) : 1;
+
+        if (weekNumber) {
+          const key = `${weekNumber}-${subCycle}`;
+          const statuses = multiWeeklyStatuses.get(key) ?? new Set<ContributionStatus>();
+          statuses.add(item.status);
+          multiWeeklyStatuses.set(key, statuses);
+        }
+      }
+
+      const totalWeeks = this.getIsoWeeksInYear(targetYear);
+      const periods = [];
+
+      for (let weekIndex = 1; weekIndex <= totalWeeks; weekIndex++) {
+        for (let subCycle = 1; subCycle <= multiplier; subCycle++) {
+          const weekLabel = `${weekIndex}`.padStart(2, '0');
+          const label = `${targetYear}-W${weekLabel}-${subCycle}`;
+          const key = `${weekIndex}-${subCycle}`;
+          const statuses = multiWeeklyStatuses.get(key);
+
+          if (statuses && statuses.size > 0) {
+            periods.push({ label, status: getStatusFromSet(statuses) } as never);
+            continue;
+          }
+
+          let status: MemberCycleProgressStatus;
+          if (targetYear < currentWeekYear) {
+            status = 'missed';
+          } else if (targetYear > currentWeekYear) {
+            status = 'future';
+          } else if (weekIndex < currentWeek) {
+            status = 'missed';
+          } else if (weekIndex === currentWeek) {
+            status = 'upcoming';
+          } else {
+            status = 'future';
+          }
+
+          periods.push({ label, status } as never);
+        }
+      }
+
+      return {
+        cadence,
+        groupId,
+        year: targetYear,
+        periods,
+      };
+    }
 
     const monthlyStatuses = new Map<number, Set<ContributionStatus>>();
     for (const item of contributions) {
@@ -633,6 +812,7 @@ export class ContributionsService {
     }
 
     const periods = MONTH_LABELS.map((label, monthIndex) => {
+
       const statuses = monthlyStatuses.get(monthIndex);
       let status: MemberCycleProgressStatus;
 
@@ -650,7 +830,7 @@ export class ContributionsService {
         status = 'future';
       }
 
-      return { label, status };
+      return { label: targetYear + '-' + label, status };
     });
 
     return {
@@ -746,7 +926,9 @@ export class ContributionsService {
 
     const frequency = group.settings?.contributionFrequency ?? 'weekly';
     const weeklyPattern = /^\d{4}-W(0[1-9]|[1-4]\d|5[0-3])$/;
-    const monthlyPattern = /^\d{4}-(0[1-9]|1[0-2])$/;
+    const weeklyMultiplePattern = /^\d{4}-W(0[1-9]|[1-4]\d|5[0-3])-[1-3]$/;
+    const monthlyPattern = /^\d{4}-(0[1-9]|1[0-2]|Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)$/;
+    const yearlyPattern = /^\d{4}$/;
 
     if (frequency === 'weekly' && !weeklyPattern.test(period)) {
       throw new BadRequestException(
@@ -756,7 +938,19 @@ export class ContributionsService {
 
     if (frequency === 'monthly' && !monthlyPattern.test(period)) {
       throw new BadRequestException(
-        `Period "${period}" is invalid for monthly group setting. Use format YYYY-MM (e.g. 2026-05).`,
+        `Period "${period}" is invalid for monthly group setting. Use format YYYY-MM or YYYY-MMM (e.g. 2026-05 or 2026-May).`,
+      );
+    }
+
+    if (frequency === 'yearly' && !yearlyPattern.test(period)) {
+      throw new BadRequestException(
+        `Period "${period}" is invalid for yearly group setting. Use format YYYY (e.g. 2026).`,
+      );
+    }
+
+    if ((frequency === 'twice_a_week' || frequency === 'thrice_a_week' || frequency === 'two') && !weeklyMultiplePattern.test(period) && !weeklyPattern.test(period)) {
+      throw new BadRequestException(
+        `Period "${period}" is invalid for multi-weekly group setting. Use format YYYY-Www or YYYY-Www-X (e.g. 2026-W18-1).`,
       );
     }
   }
@@ -771,14 +965,24 @@ export class ContributionsService {
 
     const frequency = group.settings?.contributionFrequency ?? 'weekly';
 
+    if (frequency === 'yearly') {
+      return `${date.getUTCFullYear()}`;
+    }
+
     if (frequency === 'monthly') {
       const year = date.getUTCFullYear();
-      const month = `${date.getUTCMonth() + 1}`.padStart(2, '0');
-      return `${year}-${month}`;
+      const monthIndex = date.getUTCMonth();
+      return `${year}-${MONTH_LABELS[monthIndex]}`;
     }
 
     const { weekYear, week } = this.getIsoWeekYear(date);
-    return `${weekYear}-W${`${week}`.padStart(2, '0')}`;
+    const baseWeek = `${weekYear}-W${`${week}`.padStart(2, '0')}`;
+
+    if (frequency === 'twice_a_week' || frequency === 'thrice_a_week' || frequency === 'two') {
+      return `${baseWeek}-1`; // Default to the first cycle of the week if auto-resolving
+    }
+
+    return baseWeek;
   }
 
   private getIsoWeekYear(date: Date): { weekYear: number; week: number } {
@@ -808,14 +1012,7 @@ export class ContributionsService {
       let period: string;
       let cycleNumber: number | undefined;
 
-      if (frequency === 'weekly') {
-        const { weekYear, week } = this.getIsoWeekYear(today);
-        period = `${weekYear}-W${`${week}`.padStart(2, '0')}`;
-      } else {
-        const year = today.getUTCFullYear();
-        const month = `${today.getUTCMonth() + 1}`.padStart(2, '0');
-        period = `${year}-${month}`;
-      }
+      period = this.resolvePeriod(undefined, today.toISOString().split('T')[0], group);
 
       const contribution = await this.contributionRepository.findOne({
         where: { groupId, period },

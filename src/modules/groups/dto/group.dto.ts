@@ -81,9 +81,10 @@ export class GroupSettingsDto {
   @MaxLength(10)
   contributionCurrency!: string;
 
-  @ApiProperty({ enum: ['weekly', 'monthly'], example: 'weekly' })
-  @IsIn(['weekly', 'monthly'])
-  contributionFrequency!: 'weekly' | 'monthly';
+  @ApiProperty({ example: 'weekly', enum: ['weekly', 'two', 'twice_a_week', 'thrice_a_week', 'monthly', 'yearly'] })
+  @IsString()
+  @IsIn(['weekly', 'two', 'twice_a_week', 'thrice_a_week', 'monthly', 'yearly'])
+  contributionFrequency!: 'weekly' | 'two' | 'twice_a_week' | 'thrice_a_week' | 'monthly' | 'yearly';
 
   @ApiProperty({
     enum: ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'],

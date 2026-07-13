@@ -33,7 +33,24 @@ export class AuthController {
   @ApiOperation({ summary: 'Login — email+password (admin) or phone+PIN (others)' })
   @ApiOkResponse({ description: 'Returns accessToken, refreshToken and user profile' })
   async login(@Body() dto: LoginDto) {
-    const { user, tokens } = await this.authService.login(dto);
+    const { user, tokens, resetToken, requirePasswordChange } = await this.authService.login(dto);
+
+    if (requirePasswordChange) {
+      return this.responseService.response({
+        success: true,
+        statusCode: HttpStatus.OK,
+        message: 'Password change required',
+        data: {
+          user: {
+            ...user,
+            password: undefined,
+          },
+          requirePasswordChange,
+          resetToken,
+        },
+      });
+    }
+
     return this.responseService.response({
       success: true,
       statusCode: HttpStatus.OK,

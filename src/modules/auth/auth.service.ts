@@ -38,8 +38,18 @@ export class AuthService {
 
   // ─── Login ────────────────────────────────────────────────────────────────
 
-  async login(dto: LoginDto): Promise<{ user: User; tokens: TokenPair }> {
+  async login(dto: LoginDto): Promise<{ user: User; tokens?: TokenPair; resetToken?: string; requirePasswordChange?: boolean }> {
     const user = await this.usersService.validateCredentials(dto);
+    if(!user.changedPassword){
+      const resetToken = await this.jwtService.signAsync(
+        { sub: user.id, purpose: 'password-reset' },
+        {
+          secret: this.configService.get<string>('app.jwtSecret'),
+          expiresIn: '15m',
+        },
+      );
+      return { user, resetToken, requirePasswordChange: true };
+    }
     const tokens = await this.generateTokens(user);
     await this.storeRefreshToken(user.id, tokens.refreshToken);
     return { user, tokens };

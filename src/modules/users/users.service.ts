@@ -41,7 +41,7 @@ export class UsersService {
     private readonly mailService: MailService,
     private readonly smsService: SmsService,
     private readonly configService: ConfigService,
-  ) {}
+  ) { }
 
   async create(dto: CreateUserDto, actor?: AuthUserType): Promise<User> {
     const role = dto.role ?? UserRole.MEMBER;
@@ -110,6 +110,7 @@ export class UsersService {
       ...rest,
       role,
       password: userPassword,
+      changedPassword: isAdmin ? true : false
     });
 
     await this.userRepository.save(user);
@@ -188,12 +189,14 @@ export class UsersService {
     }
 
     if (dto.email && dto.email !== user.email) {
-      if (await this.userRepository.existsByEmail(dto.email)) {
+      const emailExil = await this.userRepository.existsByEmail(dto.email);
+      if (emailExil) {
         throw new ConflictException(`Email '${dto.email}' is already taken`);
       }
     }
     if (dto.phone && dto.phone !== user.phone) {
-      if (await this.userRepository.existsByPhone(dto.phone)) {
+      const phoneExist = await this.userRepository.existsByPhone(dto.phone);
+      if (phoneExist) {
         throw new ConflictException(`Phone '${dto.phone}' is already taken`);
       }
     }
@@ -235,7 +238,36 @@ export class UsersService {
     user.password = dto.newPin;
     await this.userRepository.save(user);
     if (user.phone) {
-      await this.sendPinChangedSmsIfNeeded(user.phone, dto.newPin);
+      await this.sendPinChangedSmsIfNeeded(this.userRepository.formatPhone(user.phone), dto.newPin);
+    }
+  }
+
+  async resetCredentials(id: string, actor: AuthUserType): Promise<void> {
+    const user = await this.findOne(id);
+
+    const isAdmin = ADMIN_ROLES.includes(user.role);
+    const newPassword = isAdmin
+      ? Math.random().toString(36).slice(-8) + 'A1!'
+      : this.generatePin();
+
+    user.password = newPassword;
+    user.changedPassword = false;
+    await this.userRepository.save(user);
+
+    if (!isAdmin && user.phone) {
+      await this.sendPinChangedSmsIfNeeded(this.userRepository.formatPhone(user.phone), newPassword);
+    }
+    if (isAdmin && user.email) {
+      const loginUrl = this.configService.get<string>('FRONTEND_URL', 'http://localhost:3000') + '/auth';
+      await this.mailService.sendWelcome({
+        to: user.email,
+        name: user.fullName,
+        role: user.role,
+        identifier: user.email,
+        credential: newPassword,
+        credentialLabel: 'Temporary Password',
+        loginUrl,
+      });
     }
   }
 
@@ -368,7 +400,7 @@ export class UsersService {
 
   private async sendPinChangedSmsIfNeeded(phone: string, pin: string): Promise<void> {
     try {
-      await this.smsService.sendPinChanged(phone, pin);
+      await this.smsService.sendPinChanged(this.userRepository.formatPhone(phone), pin);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
       this.logger.error(`Failed to send PIN change SMS to ${phone}: ${message}`);

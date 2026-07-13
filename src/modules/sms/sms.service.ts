@@ -10,10 +10,10 @@ export interface SendSmsOptions {
 export class SmsService {
   private readonly logger = new Logger(SmsService.name);
 
-  constructor(private readonly configService: ConfigService) {}
+  constructor(private readonly configService: ConfigService) { }
 
   async send(options: SendSmsOptions): Promise<void> {
-    const enabled = this.configService.get<boolean>('sms.enabled', false);
+    const enabled = this.configService.get<boolean>('sms.enabled', true);
     const provider = this.configService.get<'pindo' | 'mock'>('sms.provider', 'pindo');
 
     if (!enabled) {
@@ -60,8 +60,7 @@ export class SmsService {
 
   private async sendWithPindo(options: SendSmsOptions): Promise<void> {
     const token = this.configService.get<string>('sms.pindoToken', '');
-    const sender = this.configService.get<string>('sms.pindoSender', 'Ibibina');
-
+    const sender = this.configService.get<string>('sms.pindoSender', 'PindoTest');
     if (!token) {
       this.logger.warn('SMS is enabled but Pindo token is missing. Skipping SMS send.');
       return;

@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { LoggerService } from './logger.service';
+import { BadRequestException } from '@/core';
 interface AuthorizePaymentResult {
   access: string;
   refresh: string;
@@ -16,7 +17,7 @@ interface InitiatePaymentResult {
 
 @Injectable()
 export class PaymentService {
-  constructor(private readonly logger: LoggerService) {}
+  constructor(private readonly logger: LoggerService) { }
   async initiatePayment(pay: { paidAmount: number; phoneNumber: string }) {
     try {
       const auth = await this.authorizePayment();
@@ -25,27 +26,28 @@ export class PaymentService {
       const paymentResponse = await fetch(`${process.env.PAYPACK_API_URL}transactions/cashin`, {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json',
+          "Content-Type": "application/json",
+          Accept: "application/json",
           Authorization: `Bearer ${auth.access}`,
+          "X-Webhook-Mode": "development"
         },
         body: JSON.stringify({
           amount: pay.paidAmount,
           number: pay.phoneNumber,
         }),
       });
-      this.logger.info('Payment initiation response status:', JSON.stringify(paymentResponse));
+      const res = await paymentResponse.json();
+      this.logger.info('Payment initiation response:', JSON.stringify(res));
       if (!paymentResponse.ok) {
-        throw new Error(`Paypack payment initiation failed: ${paymentResponse.statusText}`);
+        throw new BadRequestException(`${JSON.stringify(res)}`);
       }
-      const paymentResult: InitiatePaymentResult = await paymentResponse.json();
-      return paymentResult;
+      return res;
     } catch (error) {
       const errorMessage =
-        'Failed to initiate payment: ' + (error instanceof Error ? error.message : String(error));
+        (error instanceof Error ? error.message : String(error));
       this.logger.error(errorMessage);
       throw new Error(errorMessage);
-      // this.logger.error('Failed to initiate payment:', error);
-      // throw error;
+
     }
   }
 

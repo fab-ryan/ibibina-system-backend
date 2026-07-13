@@ -13,7 +13,7 @@ import {
   MaxLength,
   Min,
 } from 'class-validator';
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import { LoanStatus } from '../entities/loan.entity';
 import { PaymentMethod } from '@/enums';
 import { RepaymentStatus } from '../entities/loan-repayment.entity';
@@ -108,7 +108,7 @@ export class DisburseLoanDto {
   @IsString()
   notes?: string;
 
-  @ApiProperty({
+  @ApiPropertyOptional({
     example: 50000,
     description: 'Disbursed amount (defaults to approved amount if omitted)',
   })
@@ -118,12 +118,42 @@ export class DisburseLoanDto {
   disbursedAmount?: number;
 }
 
+// ─── Issue a loan directly (admin/chairperson) ────────────────────────────────
+
+export class IssueLoanDto {
+  @ApiProperty()
+  @IsUUID()
+  userId!: string;
+
+  @ApiProperty()
+  @IsNumber()
+  @IsPositive()
+  amount!: number;
+
+  @ApiProperty()
+  @IsInt()
+  @Min(1)
+  @Max(24)
+  termMonths!: number;
+
+  @ApiProperty()
+  @IsString()
+  @IsNotEmpty()
+  purpose!: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  notes?: string;
+}
+
 // ─── Record a repayment installment ──────────────────────────────────────────
 
 export class RecordRepaymentDto {
   @ApiProperty({ example: 8500 })
   @IsNumber()
   @IsPositive()
+  @Transform(({ value }) => Number(value))
   amountPaid!: number;
 
   @ApiPropertyOptional({ enum: PaymentMethod, example: PaymentMethod.MOMO })

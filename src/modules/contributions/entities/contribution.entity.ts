@@ -24,7 +24,7 @@ export enum ContributionStatus {
 export interface ContributionSettingsSnapshot {
   contributionAmount?: number;
   contributionCurrency?: string;
-  contributionFrequency?: 'weekly' | 'monthly';
+  contributionFrequency?: 'weekly' | 'two' | 'twice_a_week' | 'thrice_a_week' | 'monthly' | 'yearly';
   gracePeriodDays?: number;
   meetingDay?: 'monday' | 'tuesday' | 'wednesday' | 'thursday' | 'friday' | 'saturday' | 'sunday';
 }

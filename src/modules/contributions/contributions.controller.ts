@@ -25,6 +25,7 @@ import {
   GeneratePeriodContributionsDto,
   MemberCycleProgressQueryDto,
   RecordContributionDto,
+  RecordPaymentDto,
   UpdateContributionDto,
   WaiveContributionDto,
 } from './dto/contribution.dto';
@@ -61,16 +62,38 @@ export class ContributionsController {
   }
   @Post('give')
   @HttpCode(HttpStatus.CREATED)
+  @UseInterceptors(FileInterceptor('document', localDocumentMulterOptions as any))
   @Auth(UserRole.MEMBER)
   @ApiOperation({ summary: 'Give your contribution (members only, auto-assigns userId)' })
-  async give(@Body() dto: RecordContributionDto, @CurrentUser() actor: AuthUserType) {
-    const contribution = await this.contributionsService.giveContribution(dto, actor);
+  @ApiConsumes('multipart/form-data', 'application/json')
+  async give(
+    @Body() dto: RecordContributionDto, 
+    @CurrentUser() actor: AuthUserType,
+    @UploadedFile() file?: Express.Multer.File
+  ) {
+    const contribution = await this.contributionsService.giveContribution(dto, actor, file);
     return this.responseService.response({
       success: true,
       statusCode: HttpStatus.CREATED,
       message: 'Contribution recorded successfully',
       data: contribution,
     });
+  }
+
+  // ─── Record Payment directly (with document) ───────────────────────────────
+
+  @Post('record-payment')
+  @HttpCode(HttpStatus.CREATED)
+  @UseInterceptors(FileInterceptor('document', localDocumentMulterOptions as any))
+  @Auth(UserRole.ADMIN, UserRole.CHAIRPERSON, UserRole.FINANCE, UserRole.SECRETARY)
+  @ApiOperation({ summary: 'Record a payment for a member contribution directly' })
+  @ApiConsumes('multipart/form-data')
+  async recordPayment(
+    @Body() dto: RecordPaymentDto,
+    @CurrentUser() actor: AuthUserType,
+    @UploadedFile() file?: Express.Multer.File,
+  ) {
+    return this.contributionsService.recordPayment(dto, actor, file);
   }
 
   // ─── Bulk record (paid members for same period) ────────────────────────────

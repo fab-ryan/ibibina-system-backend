@@ -11,12 +11,13 @@ import { TransactionsController } from './transactions.controller';
 import { PaymentService } from '@/common/services/payment.service';
 import { Contribution } from '@/modules/contributions/entities/contribution.entity';
 import { Penalty } from '@/modules/penalties/entities/penalty.entity';
+import { Loan } from '../loans/entities';
 
 const uploadsDir = path.resolve(process.cwd(), 'public', 'uploads', 'references');
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Transaction, Contribution, Penalty]),
+    TypeOrmModule.forFeature([Transaction, Contribution, Penalty, Loan]),
     MulterModule.register({
       storage: diskStorage({
         destination: (_req, _file, cb) => {

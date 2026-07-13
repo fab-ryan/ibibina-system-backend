@@ -69,11 +69,11 @@ export const localDocumentMulterOptions = (dir = 'documents') => {
       fileSize: 5 * 1024 * 1024, // 5MB limit for documents
     },
 
-    fileFilter: (req: any, file: Express.Multer.File, callback: any) => {
-      if (!file.originalname.match(/\.(pdf|doc|docx)$/)) {
-        return callback(new Error('Only PDF, DOC, and DOCX files are allowed'), false);
-      }
-      callback(null, true);
-    },
+    // fileFilter: (req: any, file: Express.Multer.File, callback: any) => {
+    //   if (!file.originalname.match(/\.(pdf|doc|docx|jpg|jpeg|png|gif|webp)$/)) {
+    //     return callback(new Error('Only PDF, DOC, DOCX, JPG, JPEG, PNG, GIF, and WEBP files are allowed'), false);
+    //   }
+    //   callback(null, true);
+    // },
   };
 };

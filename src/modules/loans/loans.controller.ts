@@ -1,11 +1,13 @@
-import { Body, Controller, Get, Param, ParseUUIDPipe, Patch, Post, Query } from '@nestjs/common';
-import { ApiBearerAuth, ApiOperation, ApiParam, ApiResponse, ApiTags } from '@nestjs/swagger';
+import { Body, Controller, Get, Param, ParseUUIDPipe, Patch, Post, Query, UploadedFile, UseInterceptors } from '@nestjs/common';
+import { ApiBearerAuth, ApiConsumes, ApiOperation, ApiParam, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { Auth } from '@/common/decorators/auth.decorator';
 import { CurrentUser } from '@/common/decorators/current-user.decorator';
 import * as authenticateMiddleware from '@/common/middlewares/authenticate.middleware';
 import { ResponseService } from '@/common/services/response.service';
 import { UserRole } from '@/modules/users/enums/user-role.enum';
 import { LoansService } from './loans.service';
+import { localDocumentMulterOptions } from '@/utils/helper';
+import { FileInterceptor } from '@nestjs/platform-express';
 import {
   ApproveLoanDto,
   DisburseLoanDto,
@@ -16,6 +18,7 @@ import {
   RejectLoanDto,
   RepaymentFilterDto,
   RequestLoanDto,
+  IssueLoanDto,
 } from './dto/loan.dto';
 
 const ALL_ROLES = [
@@ -210,17 +213,35 @@ export class LoansController {
     });
   }
 
+  // POST /loans/issue — direct issue
+  @Post('issue')
+  @Auth(...DISBURSERS)
+  @ApiOperation({ summary: 'Issue a new loan directly (Request + Approve + Disburse)' })
+  async issueLoan(
+    @Body() dto: IssueLoanDto,
+    @CurrentUser() actor: authenticateMiddleware.AuthUserType,
+  ) {
+    const loan = await this.loansService.issueLoan(dto, actor);
+    return this.responseService.response({
+      message: 'Loan issued successfully',
+      data: loan,
+    });
+  }
+
   // POST /loans/:id/repay — record the next pending installment payment
   @Post(':id/repay')
   @Auth(...ALL_ROLES)
+  @ApiConsumes('multipart/form-data')
   @ApiOperation({ summary: 'Record payment for the next pending installment' })
   @ApiParam({ name: 'id', type: 'string', format: 'uuid' })
+  @UseInterceptors(FileInterceptor('file', localDocumentMulterOptions()))
   async recordRepayment(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: RecordRepaymentDto,
     @CurrentUser() actor: authenticateMiddleware.AuthUserType,
+    @UploadedFile() file?: Express.Multer.File,
   ) {
-    const repayment = await this.loansService.recordRepayment(id, dto, actor);
+    const repayment = await this.loansService.recordRepayment(id, dto, actor, file);
     return this.responseService.response({
       message: 'Repayment recorded successfully',
       data: repayment,

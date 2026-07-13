@@ -37,7 +37,7 @@ export class GroupsService {
     private readonly groupRepository: GroupRepository,
     @InjectRepository(User)
     private readonly userRepository: Repository<User>,
-  ) {}
+  ) { }
 
   async create(dto: CreateGroupDto): Promise<Group> {
     const name = dto.name.trim();
@@ -212,6 +212,27 @@ export class GroupsService {
 
     const members = await this.userRepository.find({ where: { groupId: group.id } });
 
+    // Fetch aggregate savings
+    const savingsRaw = await this.userRepository.manager.query(
+      `SELECT "userId", SUM(COALESCE("paidAmount", amount)) as total
+       FROM contributions
+       WHERE "groupId" = $1 AND status IN ('paid', 'late')
+       GROUP BY "userId"`,
+      [group.id]
+    );
+
+    // Fetch aggregate loan balance
+    const loanRaw = await this.userRepository.manager.query(
+      `SELECT "userId", SUM("remainingBalance") as total
+       FROM loans
+       WHERE "groupId" = $1 AND status IN ('active', 'defaulted')
+       GROUP BY "userId"`,
+      [group.id]
+    );
+
+    const savingsMap = new Map(savingsRaw.map((d: any) => [d.userId, Number(d.total)]));
+    const loanMap = new Map(loanRaw.map((d: any) => [d.userId, Number(d.total)]));
+
     const grouped: Record<UserRole, User[]> = {
       [UserRole.ADMIN]: [],
       [UserRole.CHAIRPERSON]: [],
@@ -221,6 +242,8 @@ export class GroupsService {
     };
 
     for (const member of members) {
+      member.savings = (savingsMap.get(member.id) as number) ?? 0;
+      member.loanBalance = (loanMap.get(member.id) as number) ?? 0;
       grouped[member.role]?.push(member);
     }
 

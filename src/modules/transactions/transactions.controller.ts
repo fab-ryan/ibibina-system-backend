@@ -7,6 +7,7 @@ import {
   Param,
   ParseUUIDPipe,
   Post,
+  Patch,
   Query,
   UploadedFile,
   UseInterceptors,
@@ -76,9 +77,36 @@ export class TransactionsController {
 
   @Post('webhook/paypack')
   @HttpCode(HttpStatus.OK)
+  
   @ApiOperation({ summary: 'Paypack payment webhook (internal use)' })
   async paypackWebhook(@Body() body: Record<string, unknown>) {
     await this.transactionsService.handlePaypackWebhook(body as any);
     return { received: true };
+  }
+
+  // ─── Approve / Reject Pending Transactions ─────────────────────────────────
+
+  @Patch(':id/approve')
+  @Auth(UserRole.ADMIN, UserRole.CHAIRPERSON, UserRole.FINANCE)
+  @ApiOperation({ summary: 'Approve a pending transaction' })
+  async approve(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body('notes') notes: string,
+    @CurrentUser() actor: authenticateMiddleware.AuthUserType,
+  ) {
+    await this.transactionsService.approve(id, actor, notes);
+    return this.responseService.response({ message: 'Transaction approved successfully' });
+  }
+
+  @Patch(':id/reject')
+  @Auth(UserRole.ADMIN, UserRole.CHAIRPERSON, UserRole.FINANCE)
+  @ApiOperation({ summary: 'Reject a pending transaction' })
+  async reject(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body('reason') reason: string,
+    @CurrentUser() actor: authenticateMiddleware.AuthUserType,
+  ) {
+    await this.transactionsService.reject(id, actor, reason);
+    return this.responseService.response({ message: 'Transaction rejected successfully' });
   }
 }
